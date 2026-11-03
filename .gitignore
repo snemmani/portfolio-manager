@@ -43,3 +43,8 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Local subscription runner state and dependencies
+/runner/node_modules/
+/.runner-private/
+/.runner-runtime/

@@ -8,6 +8,13 @@
       "when": 1793713940076,
       "tag": "0000_graceful_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793715715129,
+      "tag": "0001_amusing_white_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {subscriptionEnvironment,verifySubscription,codexOptions} from '../runner/subscription.mjs';
+const env=subscriptionEnvironment({HOME:'/home/test',PATH:'/bin',OPENAI_API_KEY:'forbidden',CODEX_API_KEY:'forbidden',OPENAI_BASE_URL:'https://evil.test',CODEX_ACCESS_TOKEN:'forbidden',RUNNER_SHARED_SECRET:'secret',AZURE_OPENAI_API_KEY:'forbidden',HTTPS_PROXY:'http://proxy'});
+assert.deepEqual(env,{HOME:'/home/test',PATH:'/bin',HTTPS_PROXY:'http://proxy'});
+const execute=(stdout,stderr='',status=0)=>()=>({stdout,stderr,status});
+assert.equal(verifySubscription(env,execute('Logged in using ChatGPT\n')),'chatgpt');
+assert.equal(verifySubscription(env,execute('','Logged in using ChatGPT\n')),'chatgpt');
+assert.throws(()=>verifySubscription(env,execute('Logged in using an API key: sk-test')),/refused/);
+assert.throws(()=>verifySubscription(env,execute('Not logged in','',1)),/unavailable/);
+const options=codexOptions(env);assert.equal(options.apiKey,undefined);assert.equal(options.baseUrl,undefined);assert.equal(options.config.forced_login_method,'chatgpt');assert.equal(options.config.model_provider,'openai');assert.equal(options.config.features.shell_tool,false);assert.equal(options.config.features.apps,false);
+console.log('PASS: API keys, alternate providers and upload secrets excluded; API-key sessions rejected; ChatGPT required; tools disabled; no API fallback.');

@@ -1,4 +1,4 @@
-import { settingsHandler, analysisHandler } from "../lib/ai";
+import { settingsHandler, analysisHandler, runnerHandler } from "../lib/ai";
 import { dashboard } from "../lib/data";
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
@@ -7,6 +7,9 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 const worker = {
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
     const path = new URL(request.url).pathname;
+    if (path === "/api/runner") {
+      return runnerHandler(request, env as any).catch(() => Response.json({error:"Runner request failed"},{status:502,headers:{"Cache-Control":"no-store"}}));
+    }
     if (path === "/api/settings" || path === "/api/analysis") {
       return (path === "/api/settings" ? settingsHandler : analysisHandler)(request, env as any).catch(() => Response.json({error:"Service unavailable. Check settings and retry."},{status:502,headers:{"Cache-Control":"no-store"}}));
     }

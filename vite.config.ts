@@ -64,7 +64,7 @@ export default defineConfig(async ({ command }) => {
           ...(command === "serve"
             ? {
                 vars: Object.fromEntries(
-                  ["NOCODB_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "SETTINGS_ENCRYPTION_KEY"].filter(key => process.env[key]).map(key => [key, process.env[key]!])
+                  ["NOCODB_TOKEN", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET", "RUNNER_SHARED_SECRET"].filter(key => process.env[key]).map(key => [key, process.env[key]!])
                 ),
                 services: [
                   {
