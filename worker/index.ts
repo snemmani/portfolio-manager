@@ -1,3 +1,4 @@
+import { executionHandler } from "../lib/execution";
 import { settingsHandler, analysisHandler, runnerHandler, discoveryHandler } from "../lib/ai";
 import { dashboard } from "../lib/data";
 import handler from "vinext/server/fetch-handler";
@@ -7,6 +8,7 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 const worker = {
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
     const path = new URL(request.url).pathname;
+    if (path === "/api/execution") return executionHandler(request,env as any).catch(()=>Response.json({error:"Technical data unavailable. Refresh later; no order draft has been created."},{status:502,headers:{"Cache-Control":"no-store"}}));
     if (path === "/api/discovery") return discoveryHandler(request,env as any).catch(()=>Response.json({error:"Discovery data unavailable"},{status:502,headers:{"Cache-Control":"no-store"}}));
     if (path === "/api/runner") {
       return runnerHandler(request, env as any).catch(() => Response.json({error:"Runner request failed"},{status:502,headers:{"Cache-Control":"no-store"}}));
