@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {settingsHandler,analysisHandler,runnerHandler} from '/tmp/arthapalana-runner-api.mjs';
-const sqlite=new DatabaseSync(':memory:');for(const file of ['drizzle/0000_graceful_blindfold.sql','drizzle/0001_amusing_white_queen.sql'])sqlite.exec(readFileSync(file,'utf8'));
+import {settingsHandler,analysisHandler,runnerHandler,discoveryHandler} from '/tmp/arthapalana-runner-api.mjs';
+const sqlite=new DatabaseSync(':memory:');for(const file of ['drizzle/0000_graceful_blindfold.sql','drizzle/0001_amusing_white_queen.sql','drizzle/0002_wise_doctor_doom.sql'])sqlite.exec(readFileSync(file,'utf8'));
 const DB={prepare(sql){const make=args=>({bind(...bound){return make(bound)},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){const r=sqlite.prepare(sql).run(...args);return {meta:{changes:r.changes}}}});return make([])},async batch(statements){sqlite.exec('BEGIN');try{const r=[];for(const s of statements)r.push(await s.run());sqlite.exec('COMMIT');return r}catch(e){sqlite.exec('ROLLBACK');throw e}}};
 const env={DB,RUNNER_SHARED_SECRET:'test-secret',NOCODB_TOKEN:'noco',CF_ACCESS_CLIENT_ID:'id',CF_ACCESS_CLIENT_SECRET:'secret'};
 let apiCalls=0;
@@ -19,11 +19,16 @@ r=await runnerHandler(req({operation:'poll',auth:'chatgpt',machine:'test-machine
 r=await runnerHandler(req({operation:'poll',auth:'chatgpt'}),env);assert.equal((await r.json()).job,null);
 r=await runnerHandler(req({operation:'complete',leaseToken:'wrong',result:{}}),env);assert.equal(r.status,409);
 r=await runnerHandler(req({operation:'heartbeat',leaseToken}),env);assert.equal(r.status,200);
-r=await runnerHandler(req({operation:'complete',leaseToken,result:{summary:'Review concentrations and keep cash.',recommendations:[{portfolio:'ESPP',ticker:'ORCL',action:'sell',reasons:['Oversized.'],risks:['Concentration.'],confidence:'high'}],evidence_gaps:['Forward evidence unavailable.']}}),env);assert.equal(r.status,200);
+const candidate={ticker:'NEW.NS',name:'New stock',market:'IN',category:'B',sector:'Technology',currency:'INR',price:100,quoteTime:Date.now()/1000,status:'eligible',gateReasons:[],matchedScreens:[{category:'B',bucket:'GARP',criteria:'ROE>15%'}],metrics:{revenue_growth_yoy:20,earnings_growth_yoy:20,cash_conversion_ratio:1},evidenceGaps:[]};
+r=await runnerHandler(req({operation:'discovery',leaseToken,discovery:{asOf:new Date().toISOString(),screens:[],errors:[],candidates:[{...candidate,ticker:'AAA.NS'}]}}),env);assert.equal(r.status,400);
+r=await runnerHandler(req({operation:'discovery',leaseToken,discovery:{asOf:new Date().toISOString(),screens:[],errors:[],candidates:[candidate]}}),env);assert.equal(r.status,200);
+
+r=await runnerHandler(req({operation:'complete',leaseToken,result:{summary:'Review concentrations and keep cash.',recommendations:[{portfolio:'ESPP',ticker:'ORCL',action:'sell',reasons:['Oversized.'],risks:['Concentration.'],confidence:'high'}],evidence_gaps:['Forward evidence unavailable.'],new_stock_ideas:[{portfolio:'India',ticker:'NEW.NS',decision:'enter',conviction:'low',targetWeightPct:10,thesis:'Cash conversion supports a review.',driver:'Revenue grew 20%.',risk:'Moat unverified.',portfolioFit:'Adds a new technology position.'}]}}),env);assert.equal(r.status,200);
 r=await runnerHandler(req({operation:'complete',leaseToken,result:{}}),env);assert.equal((await r.json()).alreadySaved,true);
-r=await analysisHandler(new Request('https://test.site/api/analysis'),env);let result=await r.json();assert.equal(result.report.provider,'codex-subscription');assert.equal(result.report.recommendations.length,2);assert.equal(result.report.recommendations.find(x=>x.ticker==='ORCL').action,'locked');assert.equal(result.report.recommendations.find(x=>x.ticker==='AAA.NS').action,'review');assert.equal(result.runner.auth_mode,'chatgpt');assert.equal(result.report.response_id,undefined);
+r=await analysisHandler(new Request('https://test.site/api/analysis'),env);let result=await r.json();assert.equal(result.report.provider,'codex-subscription');assert.equal(result.report.discovery.candidates.length,1);assert.equal(result.report.newStockIdeas.length,1);assert.equal(result.report.newStockIdeas[0].decision,'watch');assert.equal(result.report.recommendations.length,2);assert.equal(result.report.recommendations.find(x=>x.ticker==='ORCL').action,'locked');assert.equal(result.report.recommendations.find(x=>x.ticker==='AAA.NS').action,'review');assert.equal(result.runner.auth_mode,'chatgpt');assert.equal(result.report.response_id,undefined);
 // Expired leases reject old uploads and leave the last good report intact.
 sqlite.prepare("UPDATE research_jobs SET status='running',lease_token='expired',lease_until='2000-01-01',updated_at='2000-01-01'").run();
 r=await runnerHandler(req({operation:'complete',leaseToken:'expired',result:{}}),env);assert.equal(r.status,409);
 r=await analysisHandler(new Request('https://test.site/api/analysis'),env);result=await r.json();assert.equal(result.job.status,'failed');assert.ok(result.report.body);
+r=await discoveryHandler(new Request('https://test.site/api/discovery'),env);const live=await r.json();assert.equal(live.discovery.candidates[0].price,100);assert.equal(live.ideas.length,1);
 assert.equal(apiCalls,0);console.log('PASS: runner auth, subscription-only settings, CSRF, atomic job claim, lease renewal/expiry, ORCL protection, missing-position coverage, persisted report and zero API calls.');

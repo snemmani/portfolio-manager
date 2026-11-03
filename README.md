@@ -15,13 +15,13 @@ Research consumes the user's **Codex subscription allowance**, subject to its li
 - Yahoo market-session quotes, currency conversion, timestamps, price histories and corporate-action reconciliation checks. Prices can be delayed; the weekday-session check does not include an exchange holiday calendar.
 - Declarative risk signals remain independent of the model. The runner applies the original Jarvis prompt with strict evidence and locked-position instructions, returning structured per-position recommendations.
 - The server validates output, rejects unknown/duplicate positions, fills missing coverage with Review, preserves the ORCL ESPP lock and blocks unsupported buys/exits. Deterministic quantities are the execution reference.
-- Forward XIRR, moat, governance, bank-specific metrics, news and full five-year forensic checks are unverified where not supplied. New-stock discovery is not implemented.
+- Forward XIRR, moat, governance, bank-specific metrics, news and full five-year forensic checks are unverified where not supplied. New-stock discovery runs the 18 Jarvis sector-aware sub-screens across NSE and NYSE/Nasdaq (A: quality compounders, B: GARP, C: value/re-rating). It captures up to 30 matches per screen and performs 24 diversified deep dives, excluding all current household holdings and ORCL. Financial statements, forward EPS, analyst ratings, 72-hour news and nearby earnings/dividend events feed Jarvis’s deterministic forward-risk gate. Missing evidence remains visible; passing a screen alone is not an entry recommendation.
 
 ## Architecture
 
 Vinext / React / TypeScript on Cloudflare Workers, D1 persistence, owner-private Sites gateway. `/api/portfolio` serves live data; `/api/settings` saves model/timing; `/api/analysis` queues research and reads the last successful result. `/api/runner` is an outbound-only machine protocol protected by both the private Sites gateway and a separate shared secret.
 
-The runner polls every 30 seconds. A singleton D1 job queue, atomic claim and expiring/renewed lease prevent duplicate work. A nine-minute model timeout prevents hung runs; upload retries reuse the same report and lease. Failed research never overwrites the last good report. Browser refreshes never make model calls directly.
+The runner polls every 30 seconds. Before Codex research it runs `runner/discovery.py` in the isolated Python runtime (`runner/requirements.txt`). The shared-secret protocol registers the screened evidence against the active lease; Codex can select only those candidates. The server downgrades watchlist/rejected names from entry, and the browser sizes only eligible, Codex-selected names with fresh quotes/FX, 5–15% position sizes, whole Indian/four-decimal US shares, household caps, 25% cyclical / 20% commodity / 15% Category C limits, and a price-gap check. Unallocated or sub-meaningful amounts stay in reserve. This is conditional research, not automatic trade execution. A singleton D1 job queue, atomic claim and expiring/renewed lease prevent duplicate work. A 270-second screening timeout and nine-minute model timeout prevents hung runs; upload retries reuse the same report and lease. Failed research never overwrites the last good report. Browser refreshes never make model calls directly.
 
 Portfolio prices refresh every five minutes while the dashboard is open. The local service generates research at the configured interval even when the page is closed, **while this machine is awake, connected, and the user service is active**. A user service starts with the user's session; the machine must not be asleep. Default interval is one hour. Settings supports pause, model override and interval changes; a manual request can run even when automatic research is paused.
 
@@ -75,3 +75,9 @@ Schema changes are in Drizzle migrations; hosted publishing applies them. For lo
 ## Framework attribution
 
 Source framework: [`snemmani/jarvis`](https://github.com/snemmani/jarvis), commit `5750d4bf5e7187eb052129e8e282c53edaf35cdf`, Apache License 2.0. Original rebalance/deploy-cash files and license are retained in `docs/`. `lib/prompts.ts` retains the original rebalance prompt; `lib/runner-contract.ts` adds evidence constraints and structured output. This is an adaptation, not a complete reimplementation of every Jarvis research integration.
+
+## Appearance
+
+Auto follows `prefers-color-scheme` and updates when the device theme changes. The top-bar selector supports Auto, Light and Dark; the preference is stored only in this browser. Both themes use subdued surfaces and semantic positive/negative chart colors.
+
+Discovery endpoint: `/api/discovery` reads the last persisted candidate evidence and Codex selections while refreshing their quotes and USD/INR. Report evidence is not silently refreshed or fabricated. A report older than six hours cannot size a new entry. Re-run research if a price rises more than 5% from the research price. If screening fails, its errors are shown and cash is retained.

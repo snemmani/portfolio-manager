@@ -1,7 +1,9 @@
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {readFile,mkdir,chmod} from 'node:fs/promises';
 import {hostname} from 'node:os';
 import {fileURLToPath} from 'node:url';
-import {newSubscriptionThread,verifySubscription} from './subscription.mjs';
+import {newSubscriptionThread,verifySubscription,subscriptionEnvironment} from './subscription.mjs';
 import {researchPrompt,OUTPUT_SCHEMA,validateRecommendations} from '../.runner-private/research-contract.mjs';
 const root=new URL('../',import.meta.url),privateDir=new URL('.runner-private/',root),work=fileURLToPath(new URL('work/',privateDir));
 const credentials=JSON.parse(await readFile(new URL('connection.json',privateDir),'utf8'));
@@ -10,7 +12,7 @@ const secretHeaders={'Content-Type':'application/json','Authorization':'Bearer '
 const args=new Set(process.argv.slice(2)),once=args.has('--once'),check=args.has('--check');
 await mkdir(work,{recursive:true,mode:0o700});await chmod(privateDir,0o700);
 let shutdown=false;const active=new AbortController();for(const s of ['SIGTERM','SIGINT'])process.on(s,()=>{shutdown=true;active.abort();});
-const sleep=ms=>new Promise(resolve=>{const t=setTimeout(resolve,ms);active.signal.addEventListener('abort',()=>{clearTimeout(t);resolve()},{once:true});});
+const sleep=ms=>new Promise(resolve=>{const finish=()=>{clearTimeout(t);active.signal.removeEventListener('abort',finish);resolve()};const t=setTimeout(finish,ms);active.signal.addEventListener('abort',finish,{once:true});if(active.signal.aborted)finish();});
 const safeError=e=>String(e?.message||e).replace(/(?:sk-[\w-]+|Bearer\s+\S+)/g,'[redacted]').slice(0,900);
 async function call(payload){const r=await fetch(new URL('/api/runner',origin),{method:'POST',headers:secretHeaders,body:JSON.stringify(payload),redirect:'manual',signal:AbortSignal.timeout(60000)});if(!r.ok)throw Error('Dashboard runner endpoint HTTP '+r.status);return r.json();}
 async function runJob(job){
@@ -19,6 +21,15 @@ async function runJob(job){
  // a second run; completion is retried with the same lease and report.
  const heartbeat=setInterval(()=>{if(!stopped)call({operation:'heartbeat',leaseToken:job.leaseToken}).catch(e=>{heartbeatError=safeError(e);});},30000);
  try{
+ if(job.discoverySupported){
+ console.log(new Date().toISOString()+' Screening NSE and US candidates with Jarvis criteria.');
+ let discovery;
+ try{const run=promisify(execFile);const child=run(fileURLToPath(new URL('.runner-runtime/python/bin/python',root)),[fileURLToPath(new URL('runner/discovery.py',root))],{env:subscriptionEnvironment(),timeout:270000,maxBuffer:5000000,signal:active.signal});
+ child.child.stdin.end(JSON.stringify({exclude:job.snapshot.holdings.map(h=>h.ticker)}));const {stdout}=await child;discovery=JSON.parse(stdout);
+ }catch{discovery={asOf:new Date().toISOString(),source:'Yahoo Finance via yfinance; Jarvis sector-aware screens',scope:'Live screen unavailable; no candidates invented',screens:[],candidates:[],errors:['Live new-stock discovery unavailable. Keep cash reserved and retry later.']};}
+ const accepted=await call({operation:'discovery',leaseToken:job.leaseToken,discovery});job.snapshot=accepted.snapshot;
+ console.log(new Date().toISOString()+` Discovery: ${job.snapshot.discovery.candidates.length} candidates; ${job.snapshot.discovery.errors.length} feed warnings.`);
+ }
  const thread=newSubscriptionThread({model:job.model,workingDirectory:work});
  console.log(new Date().toISOString()+' Research started; authentication=chatgpt; provider=codex-subscription');
  const timeout=AbortSignal.timeout(9*60*1000),signal=AbortSignal.any([active.signal,timeout]);

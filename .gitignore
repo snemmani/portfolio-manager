@@ -48,3 +48,5 @@ yarn-error.log*
 /runner/node_modules/
 /.runner-private/
 /.runner-runtime/
+
+/runner/__pycache__/

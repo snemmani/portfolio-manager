@@ -1,3 +1,5 @@
+import { validateDiscovery } from './discovery';
+import { quote } from './data';
 import { dashboard } from './data';
 import { snapshotForRunner,validateRecommendations,reportMarkdown } from './runner-contract';
 type Env={DB:D1Database;RUNNER_SHARED_SECRET?:string;NOCODB_TOKEN?:string;CF_ACCESS_CLIENT_ID?:string;CF_ACCESS_CLIENT_SECRET?:string};
@@ -11,7 +13,7 @@ async function init(env:Env){const time=now();await env.DB.batch([
 ]);}
 async function config(env:Env){return env.DB.prepare('SELECT model,enabled,interval_minutes,updated_at FROM settings WHERE id=?').bind('owner').first<any>();}
 async function state(env:Env){const row=await env.DB.prepare('SELECT * FROM runner_state WHERE id=?').bind('local').first<any>();return {...row,online:!!row?.heartbeat_at&&Date.now()-Date.parse(row.heartbeat_at)<120000,provider:'codex-subscription',apiCreditsUsed:false};}
-async function getReport(env:Env){const r=await env.DB.prepare("SELECT status,body,error,as_of,model,updated_at,provider,recommendations_json FROM reports WHERE id='latest' AND provider='codex-subscription'").first<any>();if(!r)return null;const {recommendations_json,...report}=r;return {...report,recommendations:JSON.parse(recommendations_json||'[]')};}
+async function getReport(env:Env){const r=await env.DB.prepare("SELECT status,body,error,as_of,model,updated_at,provider,recommendations_json,discovery_json,new_stock_ideas_json FROM reports WHERE id='latest' AND provider='codex-subscription'").first<any>();if(!r)return null;const {recommendations_json,discovery_json,new_stock_ideas_json,...report}=r;return {...report,recommendations:JSON.parse(recommendations_json||'[]'),discovery:JSON.parse(discovery_json||'null'),newStockIdeas:JSON.parse(new_stock_ideas_json||'[]')};}
 async function jobState(env:Env){return env.DB.prepare("SELECT id,status,created_at,updated_at,error FROM research_jobs ORDER BY created_at DESC LIMIT 1").first<any>();}
 async function expire(env:Env){await env.DB.prepare("UPDATE research_jobs SET status='failed',error='Runner lease expired; the machine may be offline. Queue a fresh report.',updated_at=? WHERE status='running' AND lease_until<?").bind(now(),now()).run();}
 async function body(request:Request,max=250000){const raw=await request.text();if(raw.length>max)throw Error('Request too large');return JSON.parse(raw);}
@@ -68,13 +70,18 @@ export async function runnerHandler(request:Request,env:Env){
  try{const snap=snapshotForRunner(await dashboard(env));
  await env.DB.prepare("UPDATE research_jobs SET input_json=?,snapshot_at=?,updated_at=? WHERE id='current' AND lease_token=? AND status='running'").bind(JSON.stringify(snap),snap.asOf,time,token).run();
  const claimed=await env.DB.prepare("SELECT model FROM research_jobs WHERE id='current' AND lease_token=?").bind(token).first<any>();
- return json({job:{id:'current',leaseToken:token,model:claimed?.model||'',snapshot:snap},settings:c});
+ return json({job:{id:'current',leaseToken:token,model:claimed?.model||'',snapshot:snap,discoverySupported:true},settings:c});
  }catch{await env.DB.prepare("UPDATE research_jobs SET status='failed',error='Portfolio snapshot unavailable. Retry when market and NocoDB feeds recover.',updated_at=? WHERE id='current' AND lease_token=?").bind(time,token).run();return json({error:'Portfolio snapshot unavailable'},502);}
  }
  if(b.operation==='heartbeat'){
  const r=await env.DB.prepare("UPDATE research_jobs SET lease_until=?,updated_at=? WHERE id='current' AND status='running' AND lease_token=? AND lease_until>=?").bind(new Date(Date.now()+leaseMs).toISOString(),time,b.leaseToken||'',time).run();
  if(!r.meta.changes)return json({error:'Lease expired or replaced'},409);
  await env.DB.prepare("UPDATE runner_state SET heartbeat_at=?,status='researching',updated_at=? WHERE id='local'").bind(time,time).run();return json({ok:true});
+ }
+ if(b.operation==='discovery'){
+ const job=await env.DB.prepare("SELECT input_json FROM research_jobs WHERE id='current' AND status='running' AND lease_token=? AND lease_until>=?").bind(b.leaseToken||'',time).first<any>();
+ if(!job)return json({error:'Lease expired or replaced'},409);
+ try{const snap=JSON.parse(job.input_json);snap.discovery=validateDiscovery(b.discovery,snap);await env.DB.prepare("UPDATE research_jobs SET input_json=?,updated_at=? WHERE id='current' AND lease_token=? AND status='running'").bind(JSON.stringify(snap),time,b.leaseToken).run();return json({ok:true,snapshot:snap});}catch{return json({error:'Invalid discovery evidence'},400);}
  }
  if(['complete','fail'].includes(b.operation)){
  const job=await env.DB.prepare("SELECT * FROM research_jobs WHERE id='current' AND lease_token=?").bind(b.leaseToken||'').first<any>();
@@ -87,10 +94,19 @@ export async function runnerHandler(request:Request,env:Env){
  let result;try{result=validateRecommendations(b.result,JSON.parse(job.input_json));}catch{return json({error:'Invalid recommendation output'},400);}
  const model=job.model||'Codex default';
  await env.DB.batch([
- env.DB.prepare("INSERT INTO reports (id,status,body,error,as_of,model,updated_at,provider,recommendations_json) VALUES ('latest','completed',?,NULL,?,?,?,'codex-subscription',?) ON CONFLICT(id) DO UPDATE SET status='completed',body=excluded.body,error=NULL,as_of=excluded.as_of,model=excluded.model,updated_at=excluded.updated_at,provider='codex-subscription',recommendations_json=excluded.recommendations_json,response_id=NULL").bind(reportMarkdown(result),job.snapshot_at,model,time,JSON.stringify(result.recommendations)),
+ env.DB.prepare("INSERT INTO reports (id,status,body,error,as_of,model,updated_at,provider,recommendations_json,discovery_json,new_stock_ideas_json) VALUES ('latest','completed',?,NULL,?,?,?,'codex-subscription',?,?,?) ON CONFLICT(id) DO UPDATE SET status='completed',body=excluded.body,error=NULL,as_of=excluded.as_of,model=excluded.model,updated_at=excluded.updated_at,provider='codex-subscription',recommendations_json=excluded.recommendations_json,discovery_json=excluded.discovery_json,new_stock_ideas_json=excluded.new_stock_ideas_json,response_id=NULL").bind(reportMarkdown(result),job.snapshot_at,model,time,JSON.stringify(result.recommendations),JSON.stringify(JSON.parse(job.input_json).discovery||null),JSON.stringify(result.new_stock_ideas||[])),
  env.DB.prepare("UPDATE research_jobs SET status='completed',result_json=?,updated_at=? WHERE id='current' AND lease_token=?").bind(JSON.stringify({usage:b.usage||null,threadId:String(b.threadId||'').slice(0,100)}),time,b.leaseToken),
  env.DB.prepare("UPDATE runner_state SET heartbeat_at=?,status='ready',auth_mode='chatgpt',last_error=NULL,last_completed_at=?,updated_at=? WHERE id='local'").bind(time,time,time)
  ]);return json({ok:true,positions:result.recommendations.length,asOf:job.snapshot_at});
  }
  return json({error:'Unknown operation'},400);
+}
+
+export async function discoveryHandler(request:Request,env:Env){
+ if(request.method!=='GET')return json({error:'Method not allowed'},405);
+ const report=await getReport(env);const discovery=report?.discovery;
+ if(!discovery)return json({discovery:null,ideas:[],message:'Queue research to screen new stocks.'});
+ const candidates=await Promise.all(discovery.candidates.map(async(c:any)=>{const q=await quote(c.ticker);return {...c,researchPrice:c.price,price:q.price,quoteTime:q.time,stale:q.stale||q.currency!==c.currency};}));
+ const fxQuote=await quote('USDINR=X');const fx=fxQuote.price&&!fxQuote.stale?fxQuote.price:null;
+ return json({discovery:{...discovery,candidates,fx},ideas:report.newStockIdeas||[],reportAsOf:report.as_of});
 }
