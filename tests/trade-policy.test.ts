@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {saleImpact,profitReview,profitFingerprint,DEFAULT_TRADE_POLICY as policy,validateTradePolicy,reentryGate,decorateTrades,tradeKey} from '../lib/trade-policy';
+import {saleAssessment} from '../lib/sale-assessment';
+import {ledger,assess,isStale} from '../lib/engine';
+import {planDiscovery} from '../lib/discovery';
+const now=Date.parse('2026-11-04T10:00:00+05:30');
+const h:any={portfolio:'Test',ticker:'AAA.NS',shares:10,avg:100,price:150,value:1500,fx:1,currency:'INR',lots:[{date:'2025-01-01',shares:3,cost:200},{date:'2025-02-01',shares:7,cost:50}],quote:{time:Date.now()/1000,stale:false},reasons:['Annual check'],notes:[{date:'2025-01-01',note:'Exit if thesis fails.'}],action:'Profit review',historyKey:'original'};
+const p={name:'Test',value:15000,cash:5000,complete:true};
+const impact=saleImpact(h,p,2,150)!;assert.equal(impact.grossPnl,-100,'FIFO can lose money despite the profitable average-cost position');assert.equal(impact.breakEven,200);assert.equal(saleImpact(h,p,20,150),null);assert.equal(saleImpact(h,p,Infinity,150),null);assert.equal(saleImpact({...h,lots:[]},p,2,150),null);assert.equal(saleImpact({...h,lots:[{shares:10,cost:0}]},p,2,150)!.pnlPct,null);
+assert.equal(profitReview(h,policy,now).triggered,true);assert.equal(profitReview({...h,nonDiscretionary:true},policy).triggered,false);assert.throws(()=>validateTradePolicy({...policy,trimPct:100}));assert.throws(()=>validateTradePolicy({...policy,cooldownDays:.5}));assert.throws(()=>validateTradePolicy({...policy,gainThresholdPct:'25'}));
+const technical={price:150,rsi14:75,sma20:120,atr14:5};
+let a=saleAssessment(h,p,technical,policy);assert.equal(a.reviewable,false,'Profitable average does not clear a FIFO-loss sale');
+const profitable={...h,lots:[{date:'2025-01-01',shares:10,cost:100}],profitReview:{approved:false}};
+a=saleAssessment(profitable,p,technical,policy);assert(a.reviewable);assert(!a.justified);assert.equal(saleAssessment({...profitable,profitReview:{approved:true}},p,technical,policy).justified,true);assert.equal(saleAssessment(profitable,p,{...technical,rsi14:50,sma20:149},policy).reviewable,false);assert.equal(saleAssessment(profitable,p,{...technical,price:110},policy).reviewable,false);
+a=saleAssessment({...h,action:'Trim',lots:[{shares:10,cost:200}]},p,technical,policy,'recommended',2);assert(a.justified&&a.impact!.grossPnl<0);assert.match(a.reasons[0],/15%/);assert(!saleAssessment({...h,action:'Trim review',baseAction:'Trim review'},p,technical,policy).justified);
+const sold={...h,lastSell:'2026-10-01',lastSalePrice:160,lastSaleShares:2,price:140};
+assert.equal(reentryGate(sold,policy,undefined,now).allowed,false);assert.equal(reentryGate(sold,policy,{fingerprint:'original'},now).allowed,true);assert.equal(reentryGate({...sold,lastSell:'2026-11-03'},policy,{fingerprint:'original'},now).status,'cooldown');assert.equal(reentryGate({...sold,price:159},policy,{fingerprint:'original'},now).allowed,false);assert.equal(reentryGate({...sold,boughtAfterSale:true},policy,undefined,now).status,'completed');assert.equal(reentryGate({...sold,historyKey:'changed'},policy,{fingerprint:'original'},now).allowed,false);assert.equal(reentryGate({...sold,quote:{splits:[{date:'2026-10-02'}]}},policy,{fingerprint:'original'},now).allowed,false);
+const snap={portfolios:[p],holdings:[{...profitable,action:'Hold'}],tradeHistory:[sold]};const reviewed=decorateTrades(snap,policy,[{id:tradeKey('Test','AAA.NS'),kind:'profit',fingerprint:profitFingerprint(profitable,policy),created_at:new Date().toISOString()}]);assert(reviewed.holdings[0].profitReview.approved);assert.equal(decorateTrades(snap,{...policy,trimPct:25},[{id:tradeKey('Test','AAA.NS'),kind:'profit',fingerprint:profitFingerprint(profitable,policy),created_at:new Date().toISOString()}]).holdings[0].profitReview.approved,false);
+// Randomised FIFO conservation checks against a share-by-share reference.
+let seed=9381;const random=()=>((seed=Math.imul(seed,1664525)+1013904223>>>0)/4294967296);
+for(let n=0;n<3000;n++){const lots=Array.from({length:1+Math.floor(random()*8)},()=>({shares:1+Math.floor(random()*30),cost:Math.round(random()*10000)/100}));const shares=lots.reduce((s,l)=>s+l.shares,0),q=1+Math.floor(random()*shares),price=Math.max(.01,random()*500);const costs=lots.flatMap(l=>Array(l.shares).fill(l.cost)).slice(0,q).reduce((s,c)=>s+c,0);const x=saleImpact({...h,lots,shares,value:shares*price},p,q,price)!;assert(Math.abs(x.cost-costs)<1e-7);assert(Math.abs(x.grossPnl-(q*price-costs))<1e-7);assert.equal(x.remainingShares,shares-q);}
+const quote={price:100,currency:'INR',time:Date.now()/1000,history:[],splits:[],stale:false} as any;
+const row=(Id:number,TransactionType:string,NoOfShares:number,CostPerShare:any,Date='2025-01-01')=>({Id,TransactionType,NoOfShares,CostPerShare,Date,Ticker:'AAA.NS',Portfolio:'Test'});
+let book=ledger([row(1,'Buy',10,100),row(2,'Sell',10,120,'2025-03-01')],{'AAA.NS':quote},85);assert.equal(book.holdings.length,0);assert.equal(book.tradeHistory[0].lastSalePrice,120);assert.equal(book.tradeHistory[0].boughtAfterSale,false);
+book=ledger([row(1,'Buy',10,100),row(2,'Sell',10,120,'2025-03-01'),row(3,'Buy',1,110,'2025-04-01')],{'AAA.NS':quote},85);assert.equal(book.tradeHistory[0].boughtAfterSale,true);
+for(const bad of [null,Infinity,-1])assert.equal(ledger([row(1,'Buy',10,bad)],{'AAA.NS':quote},85).portfolios[0].complete,false);
+assert.equal(ledger([row(1,'Buy',10,100)],{'AAA.NS':{...quote,currency:'USD'}},85).portfolios[0].complete,false);assert.equal(ledger([row(1,'Buy',10,100)],{'AAA.NS':{...quote,stale:true}},85).portfolios[0].complete,false);assert.equal(isStale(Date.now()/1000+3600),true);
+console.log('PASS: FIFO profit/loss, invalid basis, 3,000 reference scenarios, concentration-loss justification, threshold reviews, approval invalidation, re-entry episodes, cooldown, pullback, splits, closed positions, currency and stale-ledger safeguards.');
+
+const latched=[{id:tradeKey('Test','AAA.NS'),kind:'profit-trigger',fingerprint:profitFingerprint(profitable,policy),created_at:new Date().toISOString()}];
+for(const price of [124.9,125.1,124.8,126,120])assert.equal(decorateTrades({...snap,tradeHistory:[],holdings:[{...profitable,price,avg:100,action:'Add candidate'}]},policy,latched).holdings[0].action,'Profit review','Hysteresis prevents a threshold wiggle from flipping back to buy');
+assert.equal(decorateTrades({...snap,tradeHistory:[],holdings:[{...profitable,price:119.9,avg:100,action:'Add candidate'}]},policy,latched).holdings[0].action,'Add candidate');
+console.log('PASS: profit-review hysteresis across repeated threshold crossings.');

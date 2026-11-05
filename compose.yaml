@@ -1,0 +1,92 @@
+name: arthapalana
+x-common: &common
+  image: arthapalana:local
+  build:
+    context: .
+    additional_contexts:
+      agy_runtime: ./docker/runtime
+  environment:
+    TZ: Asia/Kolkata
+  restart: unless-stopped
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  secrets:
+    - source: app_config
+      target: arthapalana.json
+    - source: documents_token
+      target: documents_token
+services:
+  documents:
+    <<: *common
+    entrypoint: [node, /app/runner/documents.mjs]
+    command: []
+    secrets:
+      - source: documents_token
+        target: documents_token
+    volumes:
+      - research_documents:/documents
+    mem_limit: 768m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8790/health',{headers:{Authorization:'Bearer '+require('fs').readFileSync('/run/secrets/documents_token','utf8').trim()}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+  web:
+    <<: *common
+    command: [web]
+    environment:
+      TZ: Asia/Kolkata
+      PUBLIC_ORIGIN: https://arthapalana.shankar-nemmani.com
+    depends_on:
+      documents:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - portfolio_data:/data
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+  runner:
+    <<: *common
+    command: [runner]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./docker/private/antigravity:/home/node/.gemini/antigravity-cli
+      - research_sources:/sources
+  market:
+    <<: *common
+    command: [market]
+    environment:
+      TZ: Asia/Kolkata
+      ARTHAPALANA_SCREEN_CACHE: /screening/discovery.sqlite
+      ARTHAPALANA_REVIEW_CHECKPOINT: /screening/monitor/checkpoint.json
+    volumes:
+      - screening_data:/screening
+    stop_grace_period: 5s
+    depends_on:
+      web:
+        condition: service_healthy
+  alerts:
+    <<: *common
+    command: [alerts]
+    stop_grace_period: 5s
+    depends_on:
+      web:
+        condition: service_healthy
+secrets:
+  documents_token:
+    file: ./docker/private/documents-token
+  app_config:
+    file: ./docker/private/arthapalana.json
+volumes:
+  portfolio_data:
+  screening_data:
+  research_documents:
+  research_sources:

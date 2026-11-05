@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';
+import {publicAddress,reachableSource,checkResearchSources} from '../runner/research-sources.mjs';
+for(const ip of ['127.0.0.1','10.1.1.1','172.16.1.1','192.168.1.1','169.254.169.254','100.64.1.1','0.0.0.0','224.1.1.1','::1','::ffff:127.0.0.1','fc00::1','fe80::1'])assert(!publicAddress(ip),ip);
+assert(publicAddress('1.1.1.1'));assert(publicAddress('2606:4700::1111'));
+let transports=0;const allowed=raw=>new URL(raw).hostname==='issuer.example';
+assert.equal(await reachableSource('https://issuer.example',{}, {allowed,resolve:async()=>[{address:'127.0.0.1',family:4}],transport:()=>{transports++;}}),false);assert.equal(transports,0);
+assert.equal(await reachableSource('https://attacker.example',{}, {allowed,resolve:async()=>{throw Error('Untrusted source must not resolve')}}),false);
+const transport=(url,options,callback)=>{const req=new EventEmitter();req.setTimeout=()=>req;req.destroy=()=>{};req.end=()=>queueMicrotask(()=>{const res=new EventEmitter();res.statusCode=200;res.headers={'content-type':'application/pdf'};res.destroy=()=>{};res.resume=()=>res.emit('data',Buffer.from('public document'));callback(res)});return req};
+assert.equal(await reachableSource('https://issuer.example/annual.pdf',{}, {allowed,resolve:async()=>[{address:'1.1.1.1',family:4}],transport}),true);
+let calls=0,active=0,maxActive=0;const r=await checkResearchSources([{ticker:'AAA',sources:[{url:'u'},{url:'u'},...Array.from({length:12},(_,i)=>({url:'u'+i}))]}],{}, {allowed,check:async()=>{calls++;active++;maxActive=Math.max(maxActive,active);await new Promise(r=>setTimeout(r,1));active--;return true}});
+assert.equal(calls,13);assert(maxActive<=4);assert(r.every(s=>s.reachable));
+const expired=await checkResearchSources([{ticker:'AAA',sources:[{url:'u'}]}],{},{allowed,budgetMs:0,check:async()=>{throw Error('No calls after budget')}});assert.equal(expired[0].reachable,false);
+console.log('PASS: public-only source reachability, private/IP and issuer-boundary restrictions, pinned DNS transport, request deduplication, four-source concurrency and bounded work; no AI/API calls.');

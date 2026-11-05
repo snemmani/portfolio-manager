@@ -1,1 +1,6 @@
-{"name":"arthapalana-codex-runner","private":true,"type":"module","dependencies":{"@openai/codex-sdk":"0.166.0"}}
+{
+  "name": "arthapalana-antigravity-runner",
+  "private": true,
+  "type": "module",
+  "dependencies": {}
+}

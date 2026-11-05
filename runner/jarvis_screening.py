@@ -9,7 +9,7 @@ import yfinance as yf
 MARKET_INDIA="IN"
 MARKET_US="US"
 
-_MARKETS={"IN":{"exchanges":("NSI",)},"US":{"exchanges":("NMS","NYQ")}}
+_MARKETS={"IN":{"exchanges":("NSI",)},"US":{"exchanges":("NMS","NGM","NCM","NYQ","ASE")}}
 
 _FORWARD_RISK_CONS_PHRASES = (
     "profit declined",

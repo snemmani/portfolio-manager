@@ -1,0 +1,4 @@
+'use client';
+import {Component,type ReactNode} from 'react';
+export class ModuleBoundary extends Component<{children:ReactNode;name:string},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return {failed:true}}componentDidCatch(error:Error){console.error('Dashboard module unavailable:',this.props.name,error.message)}render(){return this.state.failed?<section className="panel module-failure" role="alert"><h2>{this.props.name} could not load</h2><p>The navigation and AI review status remain available. Saved research continues on the server.</p><button className="button" onClick={()=>location.reload()}>Reload this page</button></section>:this.props.children;}}
+export function ModuleLoading(){return <section className="panel module-loading" role="status">Loading this section…</section>}

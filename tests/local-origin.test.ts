@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {localRequest} from '../lib/local-origin';
+const env={LOCAL_DOCKER:'1',PUBLIC_ORIGIN:'https://arthapalana.shankar-nemmani.com'};
+const make=(url:string,origin?:string)=>new Request(url,{method:'POST',headers:origin?{Origin:origin}:{},body:'{"setting":true}'});
+const r=localRequest(make('http://arthapalana.shankar-nemmani.com/api/settings?x=1',env.PUBLIC_ORIGIN),env)!;
+assert.equal(r.url,env.PUBLIC_ORIGIN+'/api/settings?x=1');assert.equal(r.method,'POST');assert.equal(await r.text(),'{"setting":true}');
+assert(localRequest(make('http://127.0.0.1:8787/api/settings','http://127.0.0.1:8787'),env));
+assert(localRequest(make('http://web:8787/api/runner'),env));
+assert.equal(localRequest(make('http://evil.example/api/settings'),env),null);
+assert.equal(localRequest(make('http://arthapalana.shankar-nemmani.com/api/settings','https://evil.example'),env),null);
+assert.equal(localRequest(make('http://127.0.0.1:8787/api/settings',env.PUBLIC_ORIGIN),env),null);
+assert.equal(localRequest(make('http://arthapalana.shankar-nemmani.com:9999/api/settings'),env),null);
+assert.equal(localRequest(make('http://arthapalana.shankar-nemmani.com/'),{LOCAL_DOCKER:'1'}),null);
+assert.equal(localRequest(make('http://localhost:8787/'),{...env,PUBLIC_ORIGIN:'https://user:password@example.com'}),null);
+console.log('PASS: exact public host, HTTPS proxy normalization, POST/body preservation, localhost/internal runner, CSRF and unknown-host rejection.');

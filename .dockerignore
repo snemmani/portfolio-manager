@@ -1,0 +1,17 @@
+.git
+node_modules
+runner/node_modules
+.runner-private
+.runner-runtime
+.env*
+.dev.vars*
+.wrangler
+.sites-runtime
+dist
+.next
+.vinext
+work
+outputs
+docker/private
+docker/runtime
+**/__pycache__

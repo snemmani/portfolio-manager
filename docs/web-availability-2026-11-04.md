@@ -1,0 +1,9 @@
+# Dashboard outage: 4 November 2026
+
+The tunnel service was active. The local origin reset connections and Docker reported the web container unhealthy with 28 consecutive failed checks. The web runtime repeatedly logged that requests had hung and could never generate a response. The web process used approximately 4 GiB while unhealthy. A web-only restart restored HTTP 200 locally and through the configured public-host routing; portfolio and research state stayed on the existing volume.
+
+The server cached pending market-data, technical and discovery-query promises globally. These promises belong to their originating Workers request. A cancelled originating request can leave other requests waiting on unusable work. An isolated workerd regression reproduces this class of failure with the previous shared-promise pattern and confirms that the corrected request-scoped cache recovers. Completed plain values still share the original TTLs, with bounded capacity and protection against older responses overwriting newer results.
+
+Docker's restart policy previously handled exited containers, but an unhealthy process could remain running indefinitely. A web supervisor now probes the read-only database health endpoint, tolerates startup and transient failures, and exits the unresponsive runtime after three consecutive failures so Docker can restart it. The separate AI, market and alert services and the existing data volume are preserved.
+
+Validation: TypeScript checks; complete numerical/API regression suite; abandoned-request and cache lifecycle checks; watchdog failure/reset checks; isolated workerd cancellation reproduction; live page/public-host routing and concurrent health/settings/market endpoint checks. Further verification uses only read requests and does not send synthetic alerts or place trades.

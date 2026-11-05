@@ -1,0 +1,1 @@
+export type ViewProps={data:any;portfolio:string;navigate:(view:string)=>void;setSelected:(holding:any)=>void;showExecution:(ticker:string,portfolio?:string,budget?:string,allowExit?:boolean)=>void};

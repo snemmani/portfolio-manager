@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {eventSafety,eventSafetyFor,ruleIdeas} from '../lib/event-policy';
+import {storedFundamental} from './fundamental-fixture.mjs';
+import {planDiscovery} from '../lib/discovery';
+const now=Date.now(),title='Example (Q2 2027) Earnings Call Highlights: Revenue Growth',r:any=storedFundamental('NEW.NS','INR',150);r.eventFingerprint='same';r.sources.find((s:any)=>s.kind==='results').publishedAt=new Date(now-2*86400000).toISOString();
+const event:any={ok:true,checkedAt:new Date(now).toISOString(),issues:['Possible material news: '+title],headlines:[{title,publishedAt:new Date(now-86400000).toISOString()}],fingerprint:'same'};
+const d:any={rulesBased:true,fundamentalPolicy:'investor-v1',fundamentalReviews:{'NEW.NS':r},events:{'NEW.NS':event},asOf:new Date(now).toISOString(),candidates:[{ticker:'NEW.NS',status:'eligible',currency:'INR',market:'IN',price:100,quoteTime:now/1000,category:'A',sector:'Technology'}]};
+assert(!eventSafety(event).clear,'An unreviewed results headline still pauses buying');assert.equal(eventSafetyFor(d,'NEW.NS').status,'researched');
+const p={name:'Test',value:10000,cash:2000,complete:true},ideas=ruleIdeas([p],d);assert.equal(ideas[0].decision,'enter');assert(planDiscovery(p,[],2000,'India',d,ideas).allocations.length,'Research, allocation and execution use the same event policy');
+for(const change of [(e:any)=>e.fingerprint='new',(e:any)=>e.checkedAt=new Date(now-31*60000).toISOString(),(e:any)=>e.ok=false,(e:any)=>e.issues.push('Earnings within 7 days'),(e:any)=>e.issues[0]='Possible material news: Example earnings call highlights: fraud investigation',(e:any)=>e.headlines[0].publishedAt=new Date(now+60000).toISOString()]){const e=structuredClone(event);change(e);assert(!eventSafetyFor({...d,events:{'NEW.NS':e}},'NEW.NS').clear)}
+for(const change of [(x:any)=>x.expiresAt='2000-01-01',(x:any)=>x.decision='incomplete',(x:any)=>x.eventFingerprint='different',(x:any)=>x.sources=x.sources.filter((s:any)=>s.kind!=='results'),(x:any)=>x.sources.find((s:any)=>s.kind==='results').publishedAt=new Date(now-30*86400000).toISOString(),(x:any)=>x.researchedAt=new Date(now-2*86400000).toISOString()]){const x=structuredClone(r);change(x);assert(!eventSafetyFor({...d,fundamentalReviews:{'NEW.NS':x}},'NEW.NS').clear)}
+const calendar={...event,coverageVersion:2,news:{ok:true,checkedAt:new Date(now).toISOString()},calendar:{ok:false,checkedAt:new Date(now).toISOString()}};assert(!eventSafetyFor({...d,events:{'NEW.NS':calendar}},'NEW.NS').clear);
+assert(!eventSafetyFor({...d,documentPolicy:'annual-reports-v1',annualDocumentsAvailable:false},'NEW.NS').clear,'An unavailable source library cannot confer event approval');
+assert(eventSafety({...event,issues:['Possible material news: unresolved investigation']},'same').clear,'Existing explicit event acknowledgements retain their established semantics');
+console.log('PASS: exact routine-call coverage can reuse a current sourced case; fresh/new/risky headlines, calendar pauses, provider gaps, stale sources, expired or incomplete cases and unavailable report evidence still block. Shared allocation enforcement verified.');

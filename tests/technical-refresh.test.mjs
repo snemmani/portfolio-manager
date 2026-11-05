@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {technicalData} from '/tmp/arthapalana-execution.mjs';
+const RealDate=Date;let now=RealDate.now();globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+const requests=[];
+globalThis.fetch=async url=>{const u=new URL(url);requests.push(u.search);return Response.json({chart:{result:[{meta:{symbol:'AAA.NS',currency:'INR',regularMarketPrice:100,regularMarketTime:now/1000,exchangeTimezoneName:'Asia/Kolkata',currentTradingPeriod:{regular:{start:now/1000-3600,end:now/1000+3600}}},timestamp:[],indicators:{quote:[]}}]}})};
+await technicalData('AAA.NS');assert.equal(requests.length,3);
+now+=30*1000;await technicalData('AAA.NS');assert.equal(requests.length,3,'Same-minute requests share the quote/snapshot');
+now+=31*1000;await technicalData('AAA.NS');assert.equal(requests.length,4);assert(requests.at(-1).includes('range=1d'),'Only current quote metadata refreshes after one minute');
+now+=15*60*1000;await technicalData('AAA.NS');assert.equal(requests.length,7,'Daily and intraday evidence refresh at the next fifteen-minute interval');globalThis.Date=RealDate;
+console.log('PASS: one-minute price metadata and fifteen-minute candles remain independent.');

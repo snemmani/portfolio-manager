@@ -22,6 +22,76 @@
       "when": 1793717307633,
       "tag": "0002_wise_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793720799080,
+      "tag": "0003_wakeful_argent",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793753845934,
+      "tag": "0004_familiar_komodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793758128876,
+      "tag": "0005_overconfident_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793759923156,
+      "tag": "0006_living_colleen_wing",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793762572850,
+      "tag": "0007_odd_namorita",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793784104822,
+      "tag": "0008_dizzy_screwball",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793842219402,
+      "tag": "0009_loving_tombstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793848637554,
+      "tag": "0010_dashing_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793866766823,
+      "tag": "0011_research_observability",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793890390900,
+      "tag": "0012_research_campaigns",
+      "breakpoints": true
     }
   ]
 }

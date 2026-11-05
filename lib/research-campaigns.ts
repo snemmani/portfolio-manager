@@ -1,0 +1,27 @@
+import {cashResearchCandidates} from './cash-research';
+import {fundamentalCheck,FUNDAMENTAL_POLICY} from './fundamental-policy';
+import {DOCUMENT_POLICY} from './annual-documents';
+export const campaignId=(portfolio:string,market:string)=>JSON.stringify([portfolio,market]);
+export async function enableCampaign(env:any,portfolio:string,market:string){const id=campaignId(portfolio,market),time=new Date().toISOString();await env.DB.prepare("INSERT INTO research_campaigns(id,portfolio,market,enabled,created_at,updated_at) VALUES(?,?,?,1,?,?) ON CONFLICT(id) DO UPDATE SET enabled=1").bind(id,portfolio,market,time,time).run();return id;}
+export async function nextCampaign(env:any){return env.DB.prepare('SELECT * FROM research_campaigns WHERE enabled=1 ORDER BY COALESCE(last_scheduled_at,created_at),id LIMIT 1').first();}
+export function campaignSummary(row:any){const work=JSON.parse(row.work_json||'[]');return {id:row.id,portfolio:row.portfolio,market:row.market,enabled:!!row.enabled,total:work.length,completed:work.filter((w:any)=>w.state==='completed').length,pending:work.filter((w:any)=>w.state==='pending').length,running:work.filter((w:any)=>w.state==='running').map((w:any)=>w.ticker),needsEvidence:work.filter((w:any)=>w.state==='needs_evidence').length,failed:work.filter((w:any)=>w.state==='failed').length,next:work.filter((w:any)=>w.state==='pending').slice(0,2).map((w:any)=>w.ticker),lastScheduledAt:row.last_scheduled_at};}
+export async function campaignsStatus(env:any){const r=await env.DB.prepare('SELECT * FROM research_campaigns ORDER BY created_at,id').all();return r.results.map(campaignSummary);}
+export function campaignWork(previous:any[],snapshot:any,discovery:any,reviews:any,uploads:any[],context:any,now=Date.now()){
+ const policy={...discovery,events:snapshot.events||discovery?.events,fundamentalPolicy:FUNDAMENTAL_POLICY,fundamentalReviews:reviews,documentPolicy:DOCUMENT_POLICY,annualDocumentsAvailable:true,annualDocuments:uploads};
+ const ranked=cashResearchCandidates(snapshot,policy,reviews,context),byTicker=new Map(previous.map(w=>[w.ticker,w]));
+ const active=new Set(ranked.map((c:any)=>c.ticker));const work=ranked.map((c:any)=>{const key=JSON.stringify([c.metrics?.statementDate,uploads.filter(d=>d.ticker===c.ticker).map(d=>[d.sha256,d.summaryHash]),policy.events?.[c.ticker]?.issues?.length?policy.events[c.ticker].fingerprint:null]);const previousItem=byTicker.get(c.ticker),totalAttempts=Math.max(previousItem?.totalAttempts||previousItem?.attempts||0,reviews[c.ticker]?.policyVersion==='materiality-v2'?1:0);let old=previousItem;if(old&&old.evidenceKey!==key)old=null;
+  const check=fundamentalCheck(policy,c.ticker),ready=reviews[c.ticker]?.policyVersion==='materiality-v2'&&(check.clear||check.status==='reject');
+  let state=ready?'completed':old?.state||'pending';if(state==='completed'&&!ready)state='pending';if(state==='paused')state='pending';if(state==='running'&&now-Date.parse(old?.lastAttemptAt)>25*60000)state='failed';
+  return {ticker:c.ticker,evidenceKey:key,state,attempts:old?.attempts||0,totalAttempts,lastAttemptAt:old?.lastAttemptAt||null,runId:old?.runId||null,error:old?.error||null};});
+ for(const old of previous)if(!active.has(old.ticker))work.push({...old,state:'paused'});
+ const eligible=work.filter((w:any)=>w.state==='pending'||['failed','needs_evidence'].includes(w.state)&&w.attempts<3&&now-Date.parse(w.lastAttemptAt)>=86400000).sort((a:any,b:any)=>Number(a.state!=='pending')-Number(b.state!=='pending')||(a.totalAttempts||0)-(b.totalAttempts||0)||a.attempts-b.attempts);
+ return {work,next:eligible.slice(0,2).map((w:any)=>w.ticker)};
+}
+export async function prepareCampaign(env:any,snapshot:any,discovery:any,reviews:any,uploads:any[],context:any,claim=false,runId?:string){
+ const row=await env.DB.prepare('SELECT * FROM research_campaigns WHERE id=? AND enabled=1').bind(context.campaignId).first();if(!row)return {...context,tickers:[]};
+ const time=new Date().toISOString(),result=campaignWork(JSON.parse(row.work_json),snapshot,discovery,reviews,uploads,context);
+ if(claim)for(const w of result.work)if(result.next.includes(w.ticker)){w.state='running';w.attempts++;w.totalAttempts=(w.totalAttempts||0)+1;w.lastAttemptAt=time;w.runId=runId||null;w.error=null;}
+ const saved=await env.DB.prepare('UPDATE research_campaigns SET work_json=?,updated_at=?,last_scheduled_at=CASE WHEN ? THEN ? ELSE last_scheduled_at END WHERE id=? AND updated_at=?').bind(JSON.stringify(result.work),time,claim?1:0,time,row.id,row.updated_at).run();if(!saved.meta.changes)throw Error('Research queue changed; retry at the next scheduled review.');
+ return {...context,tickers:result.next};
+}
+export async function finishCampaign(env:any,snapshot:any,reviews:any[],error?:string){const context=snapshot.requestedResearch;if(!context?.campaignId)return;const row=await env.DB.prepare('SELECT * FROM research_campaigns WHERE id=?').bind(context.campaignId).first();if(!row)return;const work=JSON.parse(row.work_json),scope=new Set((snapshot.fundamentalScope||[]).map((s:any)=>s.ticker));for(const w of work){if(!scope.has(w.ticker)||w.state!=='running')continue;const r=reviews.find(r=>r.ticker===w.ticker);w.state=error?'failed':r?.decision==='supported'||r?.decision==='reject'?'completed':'needs_evidence';w.error=error?.slice(0,300)||null;}await env.DB.prepare('UPDATE research_campaigns SET work_json=?,updated_at=? WHERE id=? AND updated_at=?').bind(JSON.stringify(work),new Date().toISOString(),row.id,row.updated_at).run();}

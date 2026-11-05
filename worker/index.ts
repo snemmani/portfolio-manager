@@ -1,5 +1,11 @@
+import {annualReportsHandler} from '../lib/annual-documents';
+import {withRequestCache} from '../lib/request-cache';
+import {tradeHandler} from '../lib/trade-handler';
+import {marketHandler} from '../lib/market-handler';
+import {localRequest} from '../lib/local-origin';
+import {alertsHandler} from '../lib/alerts';
 import { executionHandler } from "../lib/execution";
-import { settingsHandler, analysisHandler, runnerHandler, discoveryHandler } from "../lib/ai";
+import { settingsHandler, analysisHandler, runnerHandler, discoveryHandler, researchStatusHandler, researchCampaignsHandler } from "../lib/ai";
 import { dashboard } from "../lib/data";
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
@@ -7,7 +13,19 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 const worker = {
   fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
-    const path = new URL(request.url).pathname;
+    return withRequestCache(()=>{
+    const normalized=localRequest(request,env as any);
+    if(!normalized)return new Response('Invalid host or origin',{status:403});
+    request=normalized;
+    const url=new URL(request.url);
+    const path = url.pathname;
+    if(path==='/api/research/campaigns')return researchCampaignsHandler(request,env).catch(()=>Response.json({error:'Automatic research queue is temporarily unavailable.'},{status:503}));
+    if(path==='/api/research/status')return researchStatusHandler(request,env).catch(()=>Response.json({error:'Research status is temporarily unavailable.'},{status:503,headers:{'Cache-Control':'no-store'}}));
+    if(path==='/api/health')return env.DB?env.DB.prepare('SELECT 1 AS ok').first().then(()=>Response.json({ok:true})).catch(()=>Response.json({ok:false},{status:503})):Response.json({ok:false},{status:503});
+    if(path==='/api/annual-reports'||path.startsWith('/api/annual-reports/'))return annualReportsHandler(request,env).catch(()=>Response.json({error:'The local report library is unavailable. Retry when it is online.'},{status:503}));
+    if(path==='/api/trades')return tradeHandler(request,env as any).catch(()=>Response.json({error:'Trade review unavailable'},{status:503}));
+    if(path==='/api/market'||path==='/api/market/tick')return marketHandler(request,env as any).catch(()=>Response.json({error:"Market checks unavailable"},{status:503}));
+    if(path === "/api/alerts" || path === "/api/alerts/tick") return alertsHandler(request,env as any).catch(()=>Response.json({error:"Alert service unavailable"},{status:503}));
     if (path === "/api/execution") return executionHandler(request,env as any).catch(()=>Response.json({error:"Technical data unavailable. Refresh later; no order draft has been created."},{status:502,headers:{"Cache-Control":"no-store"}}));
     if (path === "/api/discovery") return discoveryHandler(request,env as any).catch(()=>Response.json({error:"Discovery data unavailable"},{status:502,headers:{"Cache-Control":"no-store"}}));
     if (path === "/api/runner") {
@@ -40,6 +58,7 @@ const worker = {
       };
     }
     return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
+    });
   },
 };
 

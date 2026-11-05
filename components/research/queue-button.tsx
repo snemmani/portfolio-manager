@@ -1,0 +1,3 @@
+'use client';
+import {useState} from 'react';import {RefreshCw} from 'lucide-react';import {useResearchStatus} from './activity';import {queueResearch} from '../dashboard/view-data';
+export default function QueueResearchButton(){const data=useResearchStatus().data,[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),active=['queued','running'].includes(data?.current?.status);async function queue(){setBusy(true);try{const d=await queueResearch();setNotice(d.message)}catch(e:any){setNotice(e.message)}finally{setBusy(false)}}return <div><button className="button primary" disabled={busy||active} onClick={queue}><RefreshCw size={14}/>{busy?'Requesting…':active?'AI review in progress':'Company research'}</button>{notice&&<p role="status">{notice}</p>}</div>}

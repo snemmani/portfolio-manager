@@ -9,7 +9,7 @@ assert.equal(ledger(rows,{},85).holdings[0].value,null);assert.equal(ledger(rows
 const nofx=ledger([row(1,'Buy',2,100,'2025-01-01','ORCL')],{ORCL:{...q('ORCL'),currency:'USD'}},null);assert.equal(nofx.holdings[0].value,null);assert.equal(nofx.holdings[0].nonDiscretionary,true);
 const oversold=ledger([row(1,'Sell',10,100)],{'AAA.NS':q()},85);assert.equal(oversold.warnings.length,1);
 const split=ledger([row(1,'Buy',10,100)],{'AAA.NS':{...q(),splits:[{date:'2025-06-01',ratio:2}]}},85);assert.equal(split.holdings[0].invalid,true);assert.equal(split.holdings[0].shares,10);
-const trim=assess({...h,value:3000,weight:30,shares:30,recent:true}, {...p,value:10000},undefined);assert.equal(trim.action,'Trim');assert.equal(trim.quantity,15);assert.match(trim.reasons.join(' '),/Partial trim only/);
+const trim=assess({...h,value:3000,weight:30,shares:30,recent:true}, {...p,value:10000},undefined);assert.equal(trim.action,'Trim');assert.equal(trim.quantity,15);assert.match(trim.reasons.join(' '),/recently/);assert.doesNotMatch(trim.reasons.join(' '),/Is this too early/);
 assert.equal(assess({...h,nonDiscretionary:true,weight:80},p,undefined).action,'Locked');
 assert.equal(assess({...h,quote:{...q(),stale:true}},p,undefined).action,'Review');
 const f:any={date:'2026-03-31',fresh:true,roe:20,revenueGrowth:20,earningsGrowth:20,pe:20,peg:1,fcf:100,cashConversion:1,debtEquity:.3,pb:2};

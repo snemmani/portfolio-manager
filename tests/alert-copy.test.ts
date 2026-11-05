@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {priceAlertContent} from '../lib/alert-copy';
+import {saleImpact} from '../lib/trade-policy';
+const row={ticker:'INDIAMART.NS',portfolio:'Nandan',side:'sell',intent:'recommended',target:1558};
+const h={shares:30,avg:1800,currency:'INR',fx:1,value:30*1558.75,lots:[{shares:30,cost:1800,date:'2025-01-01'}]};
+const impact=saleImpact(h,{value:230000},8,1558.75)!;
+const data={plan:{side:'sell',quantity:8,limit:1558,decisionReason:'Legacy reason.'},technical:{currency:'INR',price:1558.75,quoteTime:Date.parse('2026-11-04T09:33:05+05:30')/1000},saleAssessment:{kind:'concentration',impact,reasons:['Reduce the holding to the 15% portfolio limit, even if selling realises a loss.']}};
+let content=priceAlertContent(row,data);
+for(const part of ['Sell 8 shares','keep 22','Market price: ₹1,558.75','Recommended limit: ₹1,558.00','Your average purchase price: ₹1,800.00','FIFO purchase cost of these 8 shares: ₹14,400.00','Estimated loss at limit: ₹1,936.00','Estimated sale proceeds: ₹12,464.00','Position weight:','15% portfolio limit','09:33:05 am IST','exclude fees and taxes','No order placed'])assert(content.includes(part),part);
+assert(!content.includes('1,930.00'),'Loss is based on the displayed limit, not a different live quote');
+const mixed={...h,shares:10,avg:95,value:1500,lots:[{shares:3,cost:200},{shares:7,cost:50}]};
+const mixedImpact=saleImpact(mixed,{value:10000},2,150)!;
+content=priceAlertContent(row,{...data,plan:{...data.plan,quantity:2,limit:150},saleAssessment:{...data.saleAssessment,impact:mixedImpact}});assert(content.includes('Your average purchase price: ₹95.00'));assert(content.includes('₹400.00 (₹200.00/share)'));assert(content.includes('Estimated loss at limit: ₹100.00'),'An overall profitable holding can still realise a FIFO loss');
+content=priceAlertContent(row,{...data,plan:{...data.plan,quantity:2,limit:250},saleAssessment:{...data.saleAssessment,kind:'profit',impact:mixedImpact}});assert(content.startsWith('**PROFIT-TAKING'));assert(content.includes('Estimated profit at limit: ₹100.00'));
+content=priceAlertContent(row,{...data,plan:{...data.plan,quantity:2,limit:200},saleAssessment:{...data.saleAssessment,impact:mixedImpact}});assert(content.includes('approximately break even'));
+for(const bad of [null,{...impact,quantity:7},{...impact,currency:'USD'},{...impact,cost:NaN}]){content=priceAlertContent(row,{...data,saleAssessment:{...data.saleAssessment,impact:bad}});assert(content.includes('estimate unavailable'));assert(!content.includes('Estimated loss at limit'));assert(!content.includes('NaN'));}
+const free={...impact,cost:0,averagePurchasePrice:0};content=priceAlertContent(row,{...data,saleAssessment:{...data.saleAssessment,impact:free}});assert(content.includes('Estimated profit at limit'));assert(!content.includes('Infinity'));
+content=priceAlertContent({...row,intent:'exit'},data);assert(content.startsWith('**EXIT'));
+const usImpact={...impact,currency:'USD',quantity:.4166,cost:100,averagePurchasePrice:240,remainingShares:1.5};content=priceAlertContent({...row,ticker:'US',target:300},{...data,plan:{...data.plan,quantity:.4166,limit:300},technical:{...data.technical,price:301,currency:'USD'},saleAssessment:{...data.saleAssessment,impact:usImpact}});assert(content.includes('Sell 0.4166 shares'));assert(content.includes('Gross USD estimates'));assert(content.includes('Estimated profit at limit: $24.98'));
+content=priceAlertContent({...row,side:'buy'}, {...data,plan:{...data.plan,side:'buy'},saleAssessment:null});assert(content.includes('Buy 8 shares'));assert(!content.includes('FIFO'));assert(!content.includes('Estimated loss'));
+content=priceAlertContent({...row,portfolio:'Long name '.repeat(1000)}, {...data,saleAssessment:{...data.saleAssessment,reasons:['Long reason '.repeat(1000)]}});assert(content.length<=1950);assert(content.includes('No order placed'));
+console.log('PASS: Discord sale shares, market/limit/purchase prices, exact FIFO loss/profit at the limit, remaining position, mixed lots, breakeven, missing basis, zero cost, USD/fractional shares, buy isolation and message bounds.');

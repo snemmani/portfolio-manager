@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {cardText,cardLines,signalAction} from '../lib/card-copy';
+import {researchPrompt} from '../lib/runner-contract';
+const original='Is this too early? Partial trim only — concentration is verified, while recent lots are flagged. Revenue growth 13.02%, cash conversion 1.46 and debt/equity 0.01 support retaining exposure.';
+const readable=cardText(original);
+assert(!/Is this too early|lots|retain.*exposure/i.test(readable));assert.match(readable,/13.02%/);assert.match(readable,/1.46 times reported profit/);assert.match(readable,/1% of shareholder equity/);assert.match(readable,/Some shares were bought recently/);
+const action=cardText('Partial-trim review proposal within 2 weeks toward the supplied 15% cap: current weight is 20.30%. Dashboard calculates quantity.');
+assert.match(action,/20.30%/);assert.match(action,/15%/);assert.match(action,/Consider/);assert(!/dashboard|supplied/i.test(action));
+assert.match(cardText('The September 12 oldest date and recent flag require lot-date reconciliation; no full exit or accounting allegation is supported.'),/September 12/);
+assert.match(cardText('Debt/equity is 3.67.'),/367%/);
+assert.equal(cardText('Earnings declined 13.80%; check the accounts before selling.'),'Earnings declined 13.80%; check the accounts before selling.');
+assert.equal(cardLines(['Dashboard calculates quantity.','Check the purchase dates.','Check the purchase dates.']).length,1);
+assert.match(signalAction('Exit review'),/Check.*before deciding whether to sell/);assert(!/Sell all/.test(signalAction('Exit review')));
+const prompt=researchPrompt({holdings:[]});assert(prompt.lastIndexOf('CUSTOMER CARD WRITING')>prompt.indexOf('Is this too early?'));assert(prompt.includes('Never write rhetorical questions'));assert(prompt.includes('never invent facts'));
+console.log('PASS: legacy screenshot copy, preserved weights/risks/dates, ratio explanations, conservative review actions, deduplication and prompt style override.');

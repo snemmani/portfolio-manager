@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {alertsHandler,validWebhook,reached} from '/tmp/arthapalana-alerts.mjs';
+const sql=new DatabaseSync(':memory:');for(const f of ['0000_graceful_blindfold','0001_amusing_white_queen','0002_wise_doctor_doom'])sql.exec(readFileSync('drizzle/'+f+'.sql','utf8'));
+const DB={exec:async s=>sql.exec(s),prepare(s){const make=args=>({bind(...a){return make(a)},async first(){return sql.prepare(s).get(...args)||null},async all(){return {results:sql.prepare(s).all(...args)}},async run(){const r=sql.prepare(s).run(...args);return {meta:{changes:r.changes}}}});return make([])},async batch(stmts){const out=[];for(const s of stmts)out.push(await s.run());return out}};
+const env={DB,RUNNER_SHARED_SECRET:'runner',ALERT_ENCRYPTION_KEY:'encryption',NOCODB_TOKEN:'test',CF_ACCESS_CLIENT_ID:'test',CF_ACCESS_CLIENT_SECRET:'test'};
+const request=b=>new Request('http://localhost/api/alerts',{method:'POST',headers:{Origin:'http://localhost'},body:JSON.stringify(b)});
+const tick=()=>alertsHandler(new Request('http://localhost/api/alerts/tick',{method:'POST',headers:{Authorization:'Bearer runner'}}),env);
+assert(validWebhook('https://discord.com/api/webhooks/123/token'));for(const url of ['http://discord.com/api/webhooks/123/token','https://evil.com/api/webhooks/123/token','https://discord.com.evil.com/api/webhooks/123/token','https://discord.com/api/webhooks/123/token?x=1'])assert(!validWebhook(url));assert(reached('buy',99,100));assert(!reached('buy',101,100));assert(reached('sell',101,100));
+assert.equal((await alertsHandler(new Request('http://localhost/api/alerts/tick',{method:'POST'}),env)).status,401);
+assert.equal((await alertsHandler(new Request('http://localhost/api/alerts',{method:'POST',body:'{}'}),env)).status,403);
+assert.equal((await alertsHandler(request({operation:'settings',webhook:'https://evil.com',enabled:true}),env)).status,400);
+await alertsHandler(request({operation:'settings',webhook:'https://discord.com/api/webhooks/123/token',enabled:true}),env);
+assert(!sql.prepare('SELECT webhook FROM alert_settings').get().webhook.includes('discord'));
+assert.equal(sql.prepare('SELECT new_buys FROM alert_settings').get().new_buys,1);await alertsHandler(request({operation:'settings',enabled:true,newBuys:false}),env);assert.equal(sql.prepare('SELECT new_buys FROM alert_settings').get().new_buys,0);await alertsHandler(request({operation:'settings',enabled:true}),env);assert.equal(sql.prepare('SELECT new_buys FROM alert_settings').get().new_buys,0,'Older settings saves preserve the opt-out');await alertsHandler(request({operation:'settings',enabled:true,newBuys:true}),env);
+let deliveries=0;let fail=false;const messages=[];const start=Math.floor(Date.now()/1000)-3600;
+globalThis.fetch=async(url,options)=>{
+ if(String(url).includes('discord.com')){deliveries++;const body=JSON.parse(options.body);messages.push(body.content);assert.deepEqual(body.allowed_mentions,{parse:[]});if(fail)throw Error('ambiguous timeout');return Response.json({id:'sent'});}
+ if(String(url).includes('api.openai.com'))throw Error('API forbidden');
+ if(String(url).includes('noco.'))return Response.json({list:[{Id:1,Ticker:'AAA.NS',Portfolio:'India',Date:'2025-01-01',TransactionType:'Buy',NoOfShares:10,CostPerShare:100}],pageInfo:{isLastPage:true}});
+ if(String(url).includes('fundamentals-timeseries'))return Response.json({timeseries:{result:[]}});
+ const intra=String(url).includes('interval=5m'),times=intra?Array.from({length:12},(_,i)=>start+i*300):Array.from({length:70},(_,i)=>start-(70-i)*86400),closes=times.map(()=>100);
+ return Response.json({chart:{result:[{meta:{symbol:'AAA.NS',currency:'INR',regularMarketPrice:100,regularMarketTime:Date.now()/1000-10,exchangeTimezoneName:'Asia/Kolkata',currentTradingPeriod:{regular:{start,end:start+23400}}},timestamp:times,indicators:{quote:[{open:closes,high:closes.map(x=>x+2),low:closes.map(x=>x-2),close:closes,volume:closes.map(()=>100)}]}}]}});
+};
+assert.equal((await alertsHandler(request({operation:'arm',ticker:'AAA.NS',portfolio:'India'}),env)).status,200);
+await tick();await tick();assert.equal(deliveries,1);assert.equal(sql.prepare('SELECT status FROM price_alerts').get().status,'delivered');assert(messages[0].includes('Sell 9 shares'));assert(messages[0].includes('Your average purchase price: ₹100.00'));assert(messages[0].includes('FIFO purchase cost of these 9 shares: ₹900.00'));assert(messages[0].includes('approximately break even'));assert(messages[0].includes('Estimated sale proceeds: ₹900.00'));assert(messages[0].includes('Why: Reduce the holding to the 15% portfolio limit'));assert(messages[0].includes('No order placed'));
+await alertsHandler(request({operation:'arm',ticker:'AAA.NS',portfolio:'India',intent:'exit'}),env);fail=true;await tick();await tick();assert.equal(deliveries,2);assert.equal(sql.prepare("SELECT status FROM price_alerts WHERE intent='exit'").get().status,'failed');
+await alertsHandler(request({operation:'arm',ticker:'AAA.NS',portfolio:'India'}),env);sql.prepare("UPDATE price_alerts SET expires='2000-01-01' WHERE status='armed'").run();await tick();assert.equal(deliveries,2);
+const response=await alertsHandler(new Request('http://localhost/api/alerts'),env);assert(!(await response.text()).includes('/webhooks/'));
+await alertsHandler(request({operation:'settings',enabled:true,autoArm:true}),env);sql.prepare('DELETE FROM price_alerts').run();sql.prepare('UPDATE alert_settings SET scanned=NULL').run();fail=false;await tick();await tick();assert.equal(deliveries,3);assert.equal(sql.prepare('SELECT count(*) AS n FROM price_alerts').get().n,1);assert.match(sql.prepare('SELECT id FROM price_alerts').get().id,/^auto:/);
+console.log('PASS: webhook allowlist, encrypted storage, CSRF/auth, buy/sell thresholds, actionable plans, one delivery, ambiguous-failure dedupe, expiry and secret redaction.');

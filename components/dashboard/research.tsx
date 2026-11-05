@@ -1,0 +1,3 @@
+'use client';
+import ResearchActivity from '../research/activity';
+export default function Research(){return <><ResearchActivity detailed/><section className="panel"><h2>How reviews work</h2><p>Company research runs independently of this page. You can navigate away and return to the saved status and history. Technical and event checks have their own schedule and continue while an AI review is running.</p><p>Annual-report summaries are reused. A review fetches specific pages only when it needs more evidence. The service uses your Antigravity account; it does not switch to API billing.</p></section></>}

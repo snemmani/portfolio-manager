@@ -1,0 +1,4 @@
+import assert from 'node:assert/strict';import {queueResearch} from '../components/dashboard/view-data';
+let events=0,calls=0;(globalThis as any).window={dispatchEvent:()=>events++};globalThis.fetch=(async(_url:any,init:any)=>{calls++;assert(init.signal);assert.equal(JSON.parse(init.body).ticker,'AAA.NS');throw Object.assign(Error('timeout'),{name:'TimeoutError'})}) as any;
+await assert.rejects(()=>queueResearch('AAA.NS'),/Check AI reviews before trying again/);assert.equal(calls,1,'An uncertain queue response must not retry and launch another review');assert.equal(events,1,'Status refreshes even when confirmation is lost');
+globalThis.fetch=(async()=>Response.json({message:'Already queued'})) as any;assert.equal((await queueResearch()).message,'Already queued');assert.equal(events,2);console.log('PASS: bounded queue confirmation, visible uncertainty, status refresh after errors and no automatic retry of AI requests.');

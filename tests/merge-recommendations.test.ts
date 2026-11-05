@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {mergeRecommendations} from '../lib/merge-recommendations';
+const h={portfolio:'Nandan',ticker:'INDIAMART.NS',action:'Trim',price:1541.3,currency:'INR',value:2000,weight:20.3,reasons:['Holding is above the 15% limit.'],risks:['Check purchase dates.'],confidence:'Rule-based'};
+const r={portfolio:h.portfolio,ticker:h.ticker,action:'trim',reasons:['Consider reducing the holding toward 15%.','Revenue grew 13%.'],risks:['Earnings declined.','Check purchase dates.'],confidence:'high'};
+let cards=mergeRecommendations([h],[r]);assert.equal(cards.length,1);assert.equal(cards[0].action,'trim');assert.equal(cards[0].price,1541.3);assert.equal(cards[0].source,'codex');assert(cards[0].additionalReasons.includes(h.reasons[0]));assert.equal(cards[0].risks.length,2);
+assert.equal(mergeRecommendations([h,h],[r,r]).length,1,'Duplicate inputs do not duplicate a position');
+cards=mergeRecommendations([h,{...h,portfolio:'Other'}],[r]);assert.equal(cards.length,2,'Same ticker remains separate across portfolios');
+assert.equal(mergeRecommendations([],[r]).length,0,'Closed positions disappear even when an old research report remains');
+assert.equal(mergeRecommendations([h],[])[0].source,'signal');
+assert.equal(mergeRecommendations([h],[{...r,action:'hold'}])[0].action,'Trim','Current concentration check takes priority over an older hold');
+const conflict=mergeRecommendations([h],[{...r,action:'hold'}])[0];
+assert.equal(conflict.decisionPriority?.title,'The 15% portfolio limit takes priority');
+assert.equal(conflict.decisionPriority?.research,'Hold');assert.equal(conflict.decisionPriority?.portfolio,'Trim');
+assert.match(conflict.decisionPriority?.reason||'',/20.30% of Nandan/);assert.match(conflict.decisionPriority?.reason||'',/keep the rest/);assert.match(conflict.decisionPriority?.reason||'',/does not override the position limit/);
+assert.equal(mergeRecommendations([h],[r])[0].decisionPriority,null,'No conflict banner when both sources agree');
+assert.match(mergeRecommendations([{...h,action:'Locked',nonDiscretionary:true}],[{...r,action:'buy'}])[0].decisionPriority?.title||'',/restrictions/);
+assert.match(mergeRecommendations([{...h,action:'Review',invalid:true}],[{...r,action:'buy'}])[0].decisionPriority?.title||'',/data/);
+assert.match(mergeRecommendations([{...h,action:'Add candidate'}],[{...r,action:'watch'}])[0].decisionPriority?.reason||'',/both checks/);
+
+assert.equal(mergeRecommendations([{...h,action:'Hold'}],[r])[0].action,'Hold','Old trim cannot revive a resolved breach');
+assert.equal(mergeRecommendations([{...h,action:'Locked',nonDiscretionary:true}],[{...r,action:'buy'}])[0].action,'Locked');
+assert.equal(mergeRecommendations([{...h,action:'Review',invalid:true}],[{...r,action:'buy'}])[0].action,'Review');
+assert.equal(mergeRecommendations([{...h,action:'Add candidate'}],[{...r,action:'watch'}])[0].action,'watch','A screening candidate is not a buy approval');
+assert.equal(mergeRecommendations([{...h,action:'Add candidate'}],[{...r,action:'buy'}])[0].action,'buy');
+assert.equal(mergeRecommendations([{...h,action:'Exit review'}],[{...r,action:'hold'}])[0].action,'Exit review');
+assert.equal(h.action,'Trim');assert.equal(r.risks.length,2,'Input data stays unchanged');
+console.log('PASS: one card per holding/portfolio, source explanations and risk deduplication, closed-position removal, current checks, locked holdings, research approval and immutable inputs.');

@@ -1,22 +1,24 @@
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync} from 'node:fs';
-import {settingsHandler,analysisHandler,runnerHandler,discoveryHandler} from '/tmp/arthapalana-runner-api.mjs';
-const sqlite=new DatabaseSync(':memory:');for(const file of ['drizzle/0000_graceful_blindfold.sql','drizzle/0001_amusing_white_queen.sql','drizzle/0002_wise_doctor_doom.sql'])sqlite.exec(readFileSync(file,'utf8'));
-const DB={prepare(sql){const make=args=>({bind(...bound){return make(bound)},async first(){return sqlite.prepare(sql).get(...args)||null},async run(){const r=sqlite.prepare(sql).run(...args);return {meta:{changes:r.changes}}}});return make([])},async batch(statements){sqlite.exec('BEGIN');try{const r=[];for(const s of statements)r.push(await s.run());sqlite.exec('COMMIT');return r}catch(e){sqlite.exec('ROLLBACK');throw e}}};
+import {readFileSync,readdirSync} from 'node:fs';
+import {settingsHandler,analysisHandler,runnerHandler,discoveryHandler,researchStatusHandler} from '/tmp/arthapalana-runner-api.mjs';
+const sqlite=new DatabaseSync(':memory:');for(const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort().map(f=>'drizzle/'+f))sqlite.exec(readFileSync(file,'utf8'));
+const DB={prepare(sql){const make=args=>({bind(...bound){return make(bound)},async first(){return sqlite.prepare(sql).get(...args)||null},async all(){return {results:sqlite.prepare(sql).all(...args)}},async run(){const r=sqlite.prepare(sql).run(...args);return {meta:{changes:r.changes}}}});return make([])},async batch(statements){sqlite.exec('BEGIN');try{const r=[];for(const s of statements)r.push(await s.run());sqlite.exec('COMMIT');return r}catch(e){sqlite.exec('ROLLBACK');throw e}}};
+const RealDate=Date;let clock=RealDate.parse('2026-11-04T09:20:00+05:30');
+globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}};
 const env={DB,RUNNER_SHARED_SECRET:'test-secret',NOCODB_TOKEN:'noco',CF_ACCESS_CLIENT_ID:'id',CF_ACCESS_CLIENT_SECRET:'secret'};
 let apiCalls=0;
 globalThis.fetch=async(url)=>{if(String(url).includes('api.openai.com')){apiCalls++;throw Error('API billing forbidden');}if(String(url).includes('noco.'))return Response.json({list:[{Id:1,Ticker:'ORCL',Portfolio:'ESPP',Date:'2026-01-01',TransactionType:'Buy',NoOfShares:10,CostPerShare:100},{Id:2,Ticker:'AAA.NS',Portfolio:'India',Date:'2026-01-01',TransactionType:'Buy',NoOfShares:10,CostPerShare:100}],pageInfo:{isLastPage:true}});if(String(url).includes('fundamentals-timeseries'))return Response.json({timeseries:{result:[]}});return Response.json({chart:{result:[{meta:{regularMarketPrice:100,regularMarketTime:Date.now()/1000,currency:String(url).includes('ORCL')?'USD':'INR'},timestamp:[Date.now()/1000],indicators:{quote:[{close:[100]}]}}]}})};
 const req=(data,secret='test-secret')=>new Request('https://test.site/api/runner',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify(data)});
 const browser=(path,data,origin='https://test.site')=>new Request('https://test.site'+path,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(data)});
-let r=await runnerHandler(req({operation:'poll',auth:'chatgpt'},'bad'),env);assert.equal(r.status,401);
-r=await settingsHandler(new Request('https://test.site/api/settings'),env);assert.equal((await r.json()).provider,'codex-subscription');
+let r=await runnerHandler(req({operation:'poll',auth:'antigravity'},'bad'),env);assert.equal(r.status,401);
+r=await settingsHandler(new Request('https://test.site/api/settings'),env);assert.equal((await r.json()).provider,'antigravity');
 r=await settingsHandler(browser('/api/settings',{model:'',enabled:true,intervalMinutes:60,apiKey:'sk-test'}),env);assert.equal(r.status,400);
 r=await settingsHandler(browser('/api/settings',{model:'',enabled:true,intervalMinutes:60},'https://evil.test'),env);assert.equal(r.status,403);
 r=await runnerHandler(req({operation:'poll',auth:'api-key'}),env);assert.equal((await r.json()).job,null);
 r=await analysisHandler(browser('/api/analysis',{}),env);assert.equal((await r.json()).job.status,'queued');
-r=await runnerHandler(req({operation:'poll',auth:'chatgpt',machine:'test-machine'}),env);const claim=await r.json();assert.ok(claim.job.leaseToken);assert.equal(claim.job.snapshot.holdings.length,2);const leaseToken=claim.job.leaseToken;
-r=await runnerHandler(req({operation:'poll',auth:'chatgpt'}),env);assert.equal((await r.json()).job,null);
+r=await runnerHandler(req({operation:'poll',auth:'antigravity',machine:'test-machine'}),env);const claim=await r.json();assert.ok(claim.job.leaseToken);assert.equal(claim.job.snapshot.holdings.length,2);const leaseToken=claim.job.leaseToken;
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert.equal((await r.json()).job,null);
 r=await runnerHandler(req({operation:'complete',leaseToken:'wrong',result:{}}),env);assert.equal(r.status,409);
 r=await runnerHandler(req({operation:'heartbeat',leaseToken}),env);assert.equal(r.status,200);
 const candidate={ticker:'NEW.NS',name:'New stock',market:'IN',category:'B',sector:'Technology',currency:'INR',price:100,quoteTime:Date.now()/1000,status:'eligible',gateReasons:[],matchedScreens:[{category:'B',bucket:'GARP',criteria:'ROE>15%'}],metrics:{revenue_growth_yoy:20,earnings_growth_yoy:20,cash_conversion_ratio:1},evidenceGaps:[]};
@@ -25,10 +27,101 @@ r=await runnerHandler(req({operation:'discovery',leaseToken,discovery:{asOf:new 
 
 r=await runnerHandler(req({operation:'complete',leaseToken,result:{summary:'Review concentrations and keep cash.',recommendations:[{portfolio:'ESPP',ticker:'ORCL',action:'sell',reasons:['Oversized.'],risks:['Concentration.'],confidence:'high'}],evidence_gaps:['Forward evidence unavailable.'],new_stock_ideas:[{portfolio:'India',ticker:'NEW.NS',decision:'enter',conviction:'low',targetWeightPct:10,thesis:'Cash conversion supports a review.',driver:'Revenue grew 20%.',risk:'Moat unverified.',portfolioFit:'Adds a new technology position.'}]}}),env);assert.equal(r.status,200);
 r=await runnerHandler(req({operation:'complete',leaseToken,result:{}}),env);assert.equal((await r.json()).alreadySaved,true);
-r=await analysisHandler(new Request('https://test.site/api/analysis'),env);let result=await r.json();assert.equal(result.report.provider,'codex-subscription');assert.equal(result.report.discovery.candidates.length,1);assert.equal(result.report.newStockIdeas.length,1);assert.equal(result.report.newStockIdeas[0].decision,'watch');assert.equal(result.report.recommendations.length,2);assert.equal(result.report.recommendations.find(x=>x.ticker==='ORCL').action,'locked');assert.equal(result.report.recommendations.find(x=>x.ticker==='AAA.NS').action,'review');assert.equal(result.runner.auth_mode,'chatgpt');assert.equal(result.report.response_id,undefined);
+r=await analysisHandler(new Request('https://test.site/api/analysis'),env);let result=await r.json();assert.equal(result.report.provider,'antigravity');assert.equal(result.report.discovery.candidates.length,1);assert.equal(result.report.newStockIdeas.length,1);assert.equal(result.report.newStockIdeas[0].decision,'watch');assert.equal(result.report.recommendations.length,2);assert.equal(result.report.recommendations.find(x=>x.ticker==='ORCL').action,'locked');assert.equal(result.report.recommendations.find(x=>x.ticker==='AAA.NS').action,'review');assert.equal(result.runner.auth_mode,'antigravity');assert.equal(result.report.response_id,undefined);
 // Expired leases reject old uploads and leave the last good report intact.
 sqlite.prepare("UPDATE research_jobs SET status='running',lease_token='expired',lease_until='2000-01-01',updated_at='2000-01-01'").run();
 r=await runnerHandler(req({operation:'complete',leaseToken:'expired',result:{}}),env);assert.equal(r.status,409);
 r=await analysisHandler(new Request('https://test.site/api/analysis'),env);result=await r.json();assert.equal(result.job.status,'failed');assert.ok(result.report.body);
 r=await discoveryHandler(new Request('https://test.site/api/discovery'),env);const live=await r.json();assert.equal(live.discovery.candidates[0].price,100);assert.equal(live.ideas.length,1);
 assert.equal(apiCalls,0);console.log('PASS: runner auth, subscription-only settings, CSRF, atomic job claim, lease renewal/expiry, ORCL protection, missing-position coverage, persisted report and zero API calls.');
+
+// A poll outside the window cannot create an automatic job. A manual request can.
+clock=RealDate.parse('2026-11-04T20:00:00+05:30');sqlite.exec("UPDATE research_jobs SET status='idle'");
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert.equal((await r.json()).job,null);
+r=await analysisHandler(browser('/api/analysis',{}),env);assert.equal((await r.json()).job.request_source,'manual');
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);let j=(await r.json()).job;assert(j?.leaseToken);await runnerHandler(req({operation:'fail',leaseToken:j.leaseToken,error:'test complete'}),env);
+clock=RealDate.parse('2026-11-05T09:20:00+05:30');r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);j=(await r.json()).job;assert(j);assert.equal(sqlite.prepare('SELECT request_source FROM research_jobs').get().request_source,'automatic');await runnerHandler(req({operation:'fail',leaseToken:j.leaseToken,error:'test complete'}),env);
+clock+=5*60000;r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert.equal((await r.json()).job,null,'No automatic retry within same slot');
+clock=RealDate.parse('2026-11-05T11:15:00+05:30');r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert((await r.json()).job,'Next two-hour slot runs');
+// Queued automatic work never spills into the evening, but manual work remains supported.
+sqlite.exec("UPDATE research_jobs SET status='queued',request_source='automatic'");clock=RealDate.parse('2026-11-05T15:30:00+05:30');r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert.equal((await r.json()).job,null);assert.equal(sqlite.prepare('SELECT status FROM research_jobs').get().status,'failed');
+clock=RealDate.parse('2026-11-07T10:15:00+05:30');r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);assert.equal((await r.json()).job,null,'No weekend automatic research');
+console.log('PASS: out-of-hours/manual queue, one automatic request per scheduled IST slot, next-slot eligibility, stale automatic job cancellation and weekends.');
+
+// Only successful automatic reports create a qualifying-buy review event.
+clock=RealDate.parse('2026-11-09T09:20:00+05:30');
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);const automaticJob=(await r.json()).job;assert(automaticJob);
+const emptyResult={summary:'Keep cash pending review.',recommendations:[],evidence_gaps:['No buy approvals.'],new_stock_ideas:[]};
+r=await runnerHandler(req({operation:'complete',leaseToken:automaticJob.leaseToken,result:emptyResult}),env);assert.equal(r.status,200);assert.equal(sqlite.prepare('SELECT count(*) n FROM buy_review_runs').get().n,1);
+await runnerHandler(req({operation:'complete',leaseToken:automaticJob.leaseToken,result:emptyResult}),env);assert.equal(sqlite.prepare('SELECT count(*) n FROM buy_review_runs').get().n,1,'Duplicate completion cannot create duplicate alerts');
+clock+=120000;await analysisHandler(browser('/api/analysis',{}),env);r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);const manualJob=(await r.json()).job;assert(manualJob);await runnerHandler(req({operation:'complete',leaseToken:manualJob.leaseToken,result:emptyResult}),env);assert.equal(sqlite.prepare('SELECT count(*) n FROM buy_review_runs').get().n,1,'Manual review does not trigger the hourly notification');
+console.log('PASS: automatic-only review outbox and idempotent completion.');
+// Production rules mode never relies on AI completion to trigger qualifying-buy reviews.
+env.RULES_BASED_BUYS='1';clock=RealDate.parse('2026-11-09T11:20:00+05:30');
+const beforeRules=sqlite.prepare('SELECT count(*) n FROM buy_review_runs').get().n;
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);const advisoryJob=(await r.json()).job;assert(advisoryJob);await runnerHandler(req({operation:'complete',leaseToken:advisoryJob.leaseToken,result:emptyResult}),env);
+assert.equal(sqlite.prepare('SELECT count(*) n FROM buy_review_runs').get().n,beforeRules,'AI completion cannot create a rules-mode buy notification');
+console.log('PASS: AI commentary and empirical notification cycles are independent.');
+globalThis.Date=RealDate;
+globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}};
+// Source-backed company reviews are persisted independently of the latest commentary report.
+const {fundamentalFixture}=await import('./fundamental-fixture.mjs');clock=RealDate.parse('2026-11-09T12:00:00+05:30');
+r=await analysisHandler(browser('/api/analysis',{ticker:'AAA.NS'}),env);assert.equal((await r.json()).job.status,'queued');
+r=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env);const deepJob=(await r.json()).job;assert.equal(deepJob.snapshot.fundamentalScope[0].ticker,'AAA.NS');
+r=await runnerHandler(req({operation:'fundamental_profiles',leaseToken:deepJob.leaseToken,profiles:[{ticker:'AAA.NS',name:'Issuer Ltd',website:'https://issuer.example'}]}),env);assert.equal(r.status,200);
+const company=fundamentalFixture('AAA.NS'),sourceChecks=company.sources.map(s=>({ticker:company.ticker,url:s.url,reachable:true}));
+r=await runnerHandler(req({operation:'complete',leaseToken:deepJob.leaseToken,result:{...emptyResult,fundamental_reviews:[company]},sourceChecks}),env);assert.equal(r.status,200);
+r=await analysisHandler(new Request('https://test.site/api/analysis'),env);const reviewed=(await r.json()).fundamentalReviews['AAA.NS'];assert.equal(reviewed.decision,'supported');assert.equal(reviewed.annuals.length,5);assert.equal(reviewed.areas.length,8);assert(reviewed.sources.every(s=>s.reachable&&s.primary));
+const count=sqlite.prepare('SELECT count(*) n FROM fundamental_reviews').get().n;await runnerHandler(req({operation:'complete',leaseToken:deepJob.leaseToken,result:{}}),env);assert.equal(sqlite.prepare('SELECT count(*) n FROM fundamental_reviews').get().n,count,'Completion retries cannot replace a saved company review');
+assert.equal(apiCalls,0);console.log('PASS: focused research queue, exact public issuer profiles, source-backed dossier validation, independent persistence and idempotent completion without API billing.');
+
+// Failed refreshes keep the prior supported review; failed first attempts remain explicit and rotate.
+clock+=120000;await analysisHandler(browser('/api/analysis',{ticker:'AAA.NS'}),env);let failedJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;
+const priorDossier=sqlite.prepare("SELECT data_json FROM fundamental_reviews WHERE ticker='AAA.NS'").get().data_json;
+assert.equal((await runnerHandler(req({operation:'fail',leaseToken:failedJob.leaseToken,error:'Source research timed out'}),env)).status,200);assert.equal(sqlite.prepare("SELECT data_json FROM fundamental_reviews WHERE ticker='AAA.NS'").get().data_json,priorDossier);
+sqlite.prepare("DELETE FROM fundamental_reviews WHERE ticker='AAA.NS'").run();clock+=120000;await analysisHandler(browser('/api/analysis',{ticker:'AAA.NS'}),env);failedJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;
+assert.equal((await runnerHandler(req({operation:'fail',leaseToken:failedJob.leaseToken,error:'Source research timed out'}),env)).status,200);assert.equal(JSON.parse(sqlite.prepare("SELECT data_json FROM fundamental_reviews WHERE ticker='AAA.NS'").get().data_json).decision,'incomplete');
+console.log('PASS: failed refresh preserves prior supported evidence; failed first attempt is recorded without approving an investment.');
+globalThis.Date=RealDate;
+
+// Progress has a separate compact API, a public run ID, durable history and exact lease ownership.
+sqlite.exec("UPDATE research_jobs SET status='idle'");
+const historyBefore=sqlite.prepare('SELECT count(*) n FROM research_runs').get().n;
+await analysisHandler(browser('/api/analysis',{ticker:'AAA.NS'}),env);
+await analysisHandler(browser('/api/analysis',{ticker:'AAA.NS'}),env);
+assert.equal(sqlite.prepare('SELECT count(*) n FROM research_runs').get().n,historyBefore+1,'A duplicate request must not create another run');
+const statusReq=()=>new Request('https://test.site/api/research/status');
+let progressState=await(await researchStatusHandler(statusReq(),env)).json();assert.equal(progressState.current.status,'queued');const publicId=progressState.current.id;
+let progressJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;
+assert.notEqual(publicId,progressJob.leaseToken,'The public run ID cannot expose the runner lease');
+const update=(sequence,phase,searches=0)=>runnerHandler(req({operation:'progress',leaseToken:progressJob.leaseToken,progress:{sequence,phase,searches,documentReads:2}}),env);
+assert.equal((await update(2,'research',4)).status,200);assert.equal((await update(1,'profiles',1)).status,200);
+progressState=await(await researchStatusHandler(statusReq(),env)).json();assert.equal(progressState.current.phase,'research');assert.equal(progressState.current.searches,4);assert.equal(progressState.current.documentReads,2);assert(progressState.current.scope.includes('AAA.NS'));
+assert.equal((await update(3,'reasoning',4)).status,400,'Free-form internal model reasoning is not a progress stage');
+assert.equal((await runnerHandler(req({operation:'progress',leaseToken:'stale',progress:{sequence:4,phase:'publishing'}}),env)).status,409);
+await runnerHandler(req({operation:'fail',leaseToken:progressJob.leaseToken,error:'You hit your usage limit. Bearer private-secret sk-do-not-show'}),env);
+let requests=0,originalFetch=globalThis.fetch;globalThis.fetch=async()=>{requests++;throw Error('Status must not fetch market/portfolio feeds')};
+try{const response=await researchStatusHandler(statusReq(),env),payload=await response.text();assert.equal(response.status,200);assert(payload.length<24000);assert(!payload.includes(progressJob.leaseToken));assert(!payload.includes('private-secret'));assert(!payload.includes('sk-do-not-show'));assert(!payload.includes('fundamentalReviews'));assert(!payload.includes('recommendations_json'));progressState=JSON.parse(payload);assert.equal(progressState.current.failure.kind,'usage_limit');assert.equal(progressState.current.status,'failed');assert(progressState.history.length);assert.equal(requests,0);}finally{globalThis.fetch=originalFetch}
+assert.equal((await researchStatusHandler(browser('/api/research/status',{}),env)).status,405);
+// An expired run closes in both the singleton queue and the permanent history.
+sqlite.exec("UPDATE research_jobs SET status='idle'");await analysisHandler(browser('/api/analysis',{}),env);progressJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;sqlite.exec("UPDATE research_jobs SET lease_until='2000-01-01'");progressState=await(await researchStatusHandler(statusReq(),env)).json();assert.equal(progressState.current.status,'failed');assert.equal(progressState.current.failure.kind,'interrupted');
+assert.equal(apiCalls,0);console.log('PASS: compact status without provider fetches, separate public run IDs, scoped monotonic progress/counters, no model reasoning or secrets, durable history, usage-limit classification and expired-run recovery.');
+
+// Deploy-cash requests keep their portfolio/market/budget through claim and update no unrelated positions.
+const beforeCashFetch=globalThis.fetch;clock=RealDate.parse('2026-11-10T15:00:00+05:30');
+globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}};
+globalThis.fetch=async(url,...args)=>{if(String(url).includes('noco.'))return Response.json({list:[{Id:1,Ticker:'ORCL',Portfolio:'ESPP',Date:'2026-01-01',TransactionType:'Buy',NoOfShares:10,CostPerShare:100},{Id:2,Ticker:'AAA.NS',Portfolio:'India',Date:'2026-01-01',TransactionType:'Buy',NoOfShares:10,CostPerShare:100},{Id:3,Ticker:'CASH',Portfolio:'India',Date:'2026-01-01',TransactionType:'Deposit',NoOfShares:1,CostPerShare:100000}],pageInfo:{isLastPage:true}});return beforeCashFetch(url,...args)};
+sqlite.exec("UPDATE research_jobs SET status='idle'");
+const cashPool={asOf:new Date().toISOString(),screens:[],errors:[],candidates:[candidate,{...candidate,ticker:'NEXT.NS'},{...candidate,ticker:'EXPENSIVE.NS',price:1e8},{...candidate,ticker:'USONLY',currency:'USD',market:'US'}]};sqlite.prepare("UPDATE market_state SET discovery_json=? WHERE id='local'").run(JSON.stringify(cashPool));
+r=await analysisHandler(browser('/api/analysis',{intent:'deploy-cash',portfolio:'Missing',market:'India'}),env);assert.equal(r.status,400);
+r=await analysisHandler(browser('/api/analysis',{intent:'deploy-cash',portfolio:'India',market:'India',budget:1e6}),env);assert.equal(r.status,200);assert.equal((await r.json()).job.status,'queued');
+const existing=[{portfolio:'India',ticker:'AAA.NS',action:'hold',reasons:['The existing supported view is retained.'],risks:[],confidence:'medium'},{portfolio:'ESPP',ticker:'ORCL',action:'locked',reasons:['Employer holding.'],risks:[],confidence:'high'}];sqlite.prepare("UPDATE reports SET recommendations_json=? WHERE id='latest'").run(JSON.stringify(existing));
+const cashJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;assert(cashJob);assert.equal(cashJob.snapshot.requestedResearch.portfolio,'India');assert.equal(cashJob.snapshot.requestedResearch.market,'India');assert.equal(cashJob.snapshot.requestedResearch.budget,100000);assert.deepEqual(cashJob.snapshot.fundamentalScope.map(s=>s.ticker).sort(),['NEW.NS','NEXT.NS']);assert.equal(cashJob.snapshot.discovery.candidates.length,2,'Every scoped company receives its full numerical screen, independent of the commentary sample');
+r=await runnerHandler(req({operation:'complete',leaseToken:cashJob.leaseToken,result:{summary:'Two cash candidates assessed.',recommendations:[],new_stock_ideas:[],fundamental_reviews:[],evidence_gaps:[]}}),env);assert.equal(r.status,200);const preserved=JSON.parse(sqlite.prepare("SELECT recommendations_json FROM reports WHERE id='latest'").get().recommendations_json);assert.equal(preserved.find(r=>r.ticker==='AAA.NS').action,'hold');assert.equal(preserved.find(r=>r.ticker==='ORCL').action,'locked');assert.equal(apiCalls,0);
+// Four unattended slots continue the campaign instead of revisiting holdings or prior failures.
+cashPool.candidates=[candidate,{...candidate,ticker:'NEXT.NS'},...Array.from({length:17},(_,i)=>({...candidate,ticker:'PENDING'+i+'.NS'}))];sqlite.prepare("UPDATE market_state SET discovery_json=? WHERE id='local'").run(JSON.stringify(cashPool));
+const scheduledTickers=new Set();for(const [i,hour]of ['09:15','11:15','13:15','15:15'].entries()){clock=RealDate.parse('2026-11-11T'+hour+':00+05:30');const response=await runnerHandler(req({operation:'poll',auth:'antigravity'}),env),j=(await response.json()).job;assert(j,'Each scheduled slot must claim pending cash research');assert.equal(j.snapshot.requestedResearch.intent,'deploy-cash');assert.equal(j.snapshot.requestedResearch.portfolio,'India');assert.equal(j.snapshot.fundamentalScope.length,2);for(const c of j.snapshot.fundamentalScope){assert(c.ticker.startsWith('PENDING'));assert(!scheduledTickers.has(c.ticker));scheduledTickers.add(c.ticker);}if(i===1)await runnerHandler(req({operation:'fail',leaseToken:j.leaseToken,error:'Synthetic source outage'}),env);else await runnerHandler(req({operation:'complete',leaseToken:j.leaseToken,result:{summary:'Investment research still needs source evidence.',recommendations:[],new_stock_ideas:[],fundamental_reviews:[],evidence_gaps:[]}}),env);}
+assert.equal(scheduledTickers.size,8,'Four slots advance eight distinct pending candidates automatically');const campaignProgress=(await(await researchStatusHandler(statusReq(),env)).json()).campaigns[0];assert.equal(campaignProgress.pending,9);assert.equal(campaignProgress.needsEvidence,8);assert.equal(campaignProgress.failed,2);assert.equal(campaignProgress.running.length,0);clock=RealDate.parse('2026-11-11T19:00:00+05:30');assert.equal((await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job,null,'Automatic backlog processing stays inside the four IST slots');console.log('PASS: four scheduled slots automatically advance eight distinct remaining candidates, survive an intervening failure, persist pending/evidence counts and remain idle outside market hours.');
+// An exhausted or temporarily unaffordable cash campaign must not suppress other scheduled company reviews.
+sqlite.prepare("UPDATE market_state SET discovery_json=? WHERE id='local'").run(JSON.stringify({...cashPool,candidates:[]}));sqlite.prepare("DELETE FROM fundamental_reviews WHERE ticker='AAA.NS'").run();clock=RealDate.parse('2026-11-12T09:15:00+05:30');const resumedJob=(await(await runnerHandler(req({operation:'poll',auth:'antigravity'}),env)).json()).job;assert(resumedJob,'Scheduled holding research resumes when the cash queue has no due candidates');assert.equal(resumedJob.snapshot.requestedResearch,null);assert(resumedJob.snapshot.fundamentalScope.some(c=>c.ticker==='AAA.NS'));await runnerHandler(req({operation:'fail',leaseToken:resumedJob.leaseToken,error:'Synthetic test cleanup'}),env);console.log('PASS: empty cash worklists return their scheduled review to other portfolio research; manual cash requests retain their selected scope.');
+globalThis.fetch=beforeCashFetch;globalThis.Date=RealDate;console.log('PASS: scoped deploy-cash request persists portfolio/market, clamps cash, ranks affordable companies, includes complete scoped screens and preserves other holdings through real SQLite completion.');
