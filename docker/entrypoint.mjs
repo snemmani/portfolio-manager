@@ -1,7 +1,8 @@
 import {watchWebHealth} from './web-health.mjs';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
-const secrets=JSON.parse(await readFile('/run/secrets/arthapalana.json','utf8'));
+const {CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID,...secrets}=JSON.parse(await readFile('/run/secrets/arthapalana.json','utf8'));
+// Cloudflare credentials are only for the backup service; they never reach the app's variables.
 const documentSecret=(await readFile('/run/secrets/documents_token','utf8')).trim();
 await mkdir('/app/.runner-private/work',{recursive:true,mode:0o700});
 await writeFile('/app/.runner-private/connection.json',JSON.stringify({siteUrl:'http://web:8787/',siteBearer:'',sharedSecret:secrets.RUNNER_SHARED_SECRET,documentSecret}),{mode:0o600});
@@ -21,6 +22,11 @@ if(process.argv[2]==='web'){
  await run([...cli,'dev',...common,'--ip','0.0.0.0','--port','8787','--inspector-port','0','--log-level','error'],true);
 }else if(process.argv[2]==='market'){await run(['/app/runner/market.mjs']);}
 else if(process.argv[2]==='runner'){await run(['/app/runner/index.mjs']);}
+else if(process.argv[2]==='backup'){
+ if(!CLOUDFLARE_API_TOKEN||!CLOUDFLARE_ACCOUNT_ID){console.error('Cloud backup is off: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to docker/private/arthapalana.json.');await new Promise(()=>{});}
+ Object.assign(process.env,{CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID});
+ await run(['--no-warnings','/app/runner/cloud-backup.mjs']);
+}
 else if(process.argv[2]==='alerts'){
  let stopped=false;process.on('SIGTERM',()=>{stopped=true;});
  while(!stopped){try{const r=await fetch('http://web:8787/api/alerts/tick',{method:'POST',headers:{Authorization:'Bearer '+secrets.RUNNER_SHARED_SECRET},signal:AbortSignal.timeout(180000)});if(!r.ok)console.error('Alert monitor HTTP '+r.status);}catch{console.error('Alert monitor: app unavailable');}if(!stopped)await new Promise(resolve=>setTimeout(resolve,60000));}

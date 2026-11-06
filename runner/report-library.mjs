@@ -1,10 +1,14 @@
-import {mkdir,readFile,writeFile,rename,readdir,open,unlink,chmod} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,readdir,open,unlink,chmod,rm,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {Readable} from 'node:stream';
 export const REPORT_ID=/^r_[a-f0-9]{64}$/;
-const fold=s=>String(s||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+// Statements print rows as "Profit for the year........ 18,621.71". A model cannot
+// reproduce the dot count, so runs of leader dots count as one space; words and
+// figures must still match exactly.
+const fold=s=>String(s||'').normalize('NFKC').replace(/(?:\s*[.…·]){2,}/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const fail=(message,status=400)=>Object.assign(Error(message),{status});
 const safeText=(v,max)=>typeof v==='string'&&v.length<=max;
@@ -40,8 +44,8 @@ export function validateDocumentSummary(raw,meta,pages,companyName){
  return {valid:!issues.length,issues,errors:[...new Set(issues.map(i=>i.path+': '+i.message))],summary:{...raw,financials,version:1,identityMatched:!issues.length,createdAt:new Date().toISOString()}};
 }
 export class ReportLibrary{
- constructor(root,{maxBytes=50*1024*1024,maxTotalBytes=10*1024**3,extractor}={}){this.root=root;this.maxBytes=maxBytes;this.maxTotalBytes=maxTotalBytes;this.extractor=extractor;this.reports=new Map();this.queue=[];this.processing=false;this.serial=Promise.resolve();}
- async init(){await mkdir(this.root,{recursive:true,mode:0o700});await chmod(this.root,0o700);for(const id of await readdir(this.root)){if(/^\.upload-[a-f0-9-]{36}$/.test(id)){await unlink(join(this.root,id)).catch(()=>{});continue;}if(!REPORT_ID.test(id))continue;try{const meta=JSON.parse(await readFile(join(this.root,id,'meta.json'),'utf8'));if(meta.id===id){this.reports.set(id,meta);if(meta.status==='processing')this.queue.push(id);}}catch{}}this.processQueue();return this;}
+ constructor(root,{maxBytes=200*1024*1024,maxTotalBytes=10*1024**3,extractor}={}){this.root=root;this.maxBytes=maxBytes;this.maxTotalBytes=maxTotalBytes;this.extractor=extractor;this.reports=new Map();this.queue=[];this.processing=false;this.serial=Promise.resolve();}
+ async init(){await mkdir(this.root,{recursive:true,mode:0o700});await chmod(this.root,0o700);for(const id of await readdir(this.root)){if(/^\.upload-[a-f0-9-]{36}$/.test(id)||id.startsWith('.chunks-')){await rm(join(this.root,id),{recursive:true,force:true}).catch(()=>{});continue;}if(!REPORT_ID.test(id))continue;try{const meta=JSON.parse(await readFile(join(this.root,id,'meta.json'),'utf8'));if(meta.id===id){this.reports.set(id,meta);if(meta.status==='processing')this.queue.push(id);}}catch{}}this.processQueue();return this;}
  path(id,name){if(!REPORT_ID.test(id)||!this.reports.has(id))throw fail('Report not found.',404);return join(this.root,id,name);}
  mutate(run){this.serial=this.serial.catch(()=>{}).then(run);return this.serial;}
  async atomic(path,value){const tmp=path+'.'+randomUUID()+'.tmp';await writeFile(tmp,JSON.stringify(value),{mode:0o600});await rename(tmp,path);}
@@ -51,7 +55,7 @@ export class ReportLibrary{
   if(!/^[A-Z0-9.&-]{1,25}(\.NS|\.BO)?$/.test(input.ticker||'')||!calendarDate(input.period)||Date.parse(input.period)>Date.now())throw fail('Choose a valid stock symbol and completed financial year.');
   if(input.publishedAt&&(!calendarDate(input.publishedAt)||Date.parse(input.publishedAt)>Date.now()))throw fail('The publication date must be valid and cannot be in the future.');
   const temp=join(this.root,'.upload-'+randomUUID()),file=await open(temp,'wx',0o600),digest=createHash('sha256');let size=0,head=Buffer.alloc(0);
-  try{for await(const chunk of stream){size+=chunk.length;if(size>this.maxBytes)throw fail('The PDF exceeds the 50 MB upload limit.',413);if(head.length<5)head=Buffer.concat([head,chunk]).subarray(0,5);digest.update(chunk);await file.write(chunk);}await file.close();if(head.toString()!=='%PDF-')throw fail('Upload a PDF file; this file does not have a PDF signature.');
+  try{for await(const chunk of stream){size+=chunk.length;if(size>this.maxBytes)throw fail('The PDF exceeds the 200 MB upload limit.',413);if(head.length<5)head=Buffer.concat([head,chunk]).subarray(0,5);digest.update(chunk);await file.write(chunk);}await file.close();if(head.toString()!=='%PDF-')throw fail('Upload a PDF file; this file does not have a PDF signature.');
    const sha256=digest.digest('hex'),id='r_'+sha256;let result;
    const publish=async()=>{const existing=this.reports.get(id);if(existing&&existing.status!=='archived'){if(existing.ticker!==input.ticker||existing.period!==input.period)throw fail('This exact PDF is already assigned to a different company or financial year. Check the selection.',409);result={...existing,duplicate:true};return;}
     if(!existing&&this.reports.size>=1000||[...this.reports.values()].reduce((n,r)=>n+r.size,0)+(existing?0:size)>this.maxTotalBytes)throw fail('The local report library has reached its storage limit.',413);
@@ -60,11 +64,27 @@ export class ReportLibrary{
    };this.serial=this.serial.catch(()=>{}).then(publish);await this.serial;return result;
   }finally{await file.close().catch(()=>{});await unlink(temp).catch(()=>{});}
  }
+ async ingestChunk(chunkStream,input){
+  const uploadId=String(input.uploadId||'');
+  if(!/^[a-zA-Z0-9_-]{16,64}$/.test(uploadId))throw fail('Invalid upload ID.');
+  const index=Number(input.index),total=Number(input.total);
+  if(!Number.isInteger(index)||!Number.isInteger(total)||index<0||index>=total||total>20)throw fail('Invalid chunk index.');
+  const chunkDir=join(this.root,'.chunks-'+uploadId);
+  await mkdir(chunkDir,{recursive:true,mode:0o700});
+  const chunkFile=join(chunkDir,'chunk-'+index);
+  const out=await open(chunkFile,'wx',0o600).catch(async e=>{if(e.code==='EEXIST'){await unlink(chunkFile);return open(chunkFile,'wx',0o600);}throw e;});
+  let chunkSize=0;
+  try{for await(const c of chunkStream){chunkSize+=c.length;if(chunkSize>50*1024*1024)throw fail('Chunk exceeds 50 MB limit.',413);await out.write(c);}}finally{await out.close().catch(()=>{});}
+  if(index<total-1)return {chunk:index,total,ready:false};
+  for(let i=0;i<total;i++){const p=join(chunkDir,'chunk-'+i);await stat(p).catch(()=>{throw fail('Missing chunk '+i+'. Please re-upload.',400)});}
+  async function* readAllChunks(){for(let i=0;i<total;i++){const p=join(chunkDir,'chunk-'+i);const data=await readFile(p);yield data;}}
+  try{const report=await this.ingest(Readable.from(readAllChunks()),input);return {chunk:index,total,ready:true,report};}finally{await rm(chunkDir,{recursive:true,force:true}).catch(()=>{});}
+ }
  async processQueue(){if(this.processing)return;this.processing=true;try{while(this.queue.length){const id=this.queue.shift(),meta=this.reports.get(id);try{
    let pages;
    if(meta?.status!=='processing')continue;
    if(this.extractor)pages=await this.extractor(this.path(id,'original.pdf'));
-   else{const run=promisify(execFile),options={env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'},timeout:60000,maxBuffer:16*1024*1024};const info=(await run('pdfinfo',[this.path(id,'original.pdf')],{...options,maxBuffer:100000})).stdout;
+   else{const run=promisify(execFile),options={env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'},timeout:120000,maxBuffer:32*1024*1024};const info=(await run('pdfinfo',[this.path(id,'original.pdf')],{...options,maxBuffer:100000})).stdout;
     if(/Encrypted:\s+yes/i.test(info))throw fail('Password-protected PDFs cannot be read. Upload an unlocked copy.');
     const count=Number(info.match(/Pages:\s+(\d+)/)?.[1]);if(!count||count>1000)throw fail('The report must contain between 1 and 1,000 pages.');
     const text=(await run('pdftotext',['-layout','-enc','UTF-8',this.path(id,'original.pdf'),'-'],options)).stdout;pages=text.split('\f');if(!pages.at(-1)?.trim())pages.pop();while(pages.length<count)pages.push('');if(pages.length!==count)throw fail('The PDF page count could not be reconciled.');

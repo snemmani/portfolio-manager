@@ -12,9 +12,10 @@ export function saleAssessment(h:any,p:any,technical:any,policy=DEFAULT_TRADE_PO
   reasons.push(`The gain reached your ${policy.gainThresholdPct}% review threshold. That alone is not a reason to sell.`);
   const currentGain=h.avg>0?(price/h.avg-1)*100:null;
   if(currentGain===null||currentGain+1e-8<policy.gainThresholdPct)checks.push('The refreshed price no longer reaches your profit-review threshold.');
-  const extended=technical.rsi14>=70||(technical.atr14>0&&technical.sma20>0&&price-technical.sma20>=2*technical.atr14);
-  if(!extended)checks.push('The current technical checks do not show RSI of at least 70 or a price at least two ATRs above the 20-day average. Keep monitoring instead of trimming solely because of the gain.');
-  else reasons.push(`The price is extended: RSI ${technical.rsi14}; price ${price}, 20-day average ${technical.sma20}, daily ATR ${technical.atr14}. A partial sale can reduce the amount exposed to a pullback; a pullback is not guaranteed.`);
+  // Satellite profit-taking needs over-extension on the daily/weekly structure, not just a gain.
+  const ext=technical.extension,extended=ext?ext.stage>0:technical.rsi14>=70||(technical.atr14>0&&technical.sma20>0&&price-technical.sma20>=2*technical.atr14);
+  if(!extended)checks.push('No over-extension signal (200-day extension ≥ 25%, weekly RSI ≥ 75, daily RSI ≥ 75 at a 52-week high, or climax volume). Keep holding instead of trimming solely because of the gain.');
+  else reasons.push(ext?`Over-extended: ${ext.signals.join(' ')} Staged trim: ${ext.trimPct}% of the shares. A pullback is not guaranteed.`:`The price is extended: RSI ${technical.rsi14}; price ${price}, 20-day average ${technical.sma20}, daily ATR ${technical.atr14}. A partial sale can reduce the amount exposed to a pullback; a pullback is not guaranteed.`);
   if(profit?.cooldownUntil)checks.push('A recent recorded trade is still within your waiting period. Wait before another profit-taking sale.');
   if(!impact||impact.grossPnl<=0)checks.push('This proposed FIFO sale does not show a positive profit, or its cost basis cannot be verified.');
   if(!p?.complete||h.invalid||h.quote?.stale)checks.push('Current prices and reconciled portfolio records are required.');

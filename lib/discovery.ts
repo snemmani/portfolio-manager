@@ -31,7 +31,7 @@ export function validateIdeas(ideas:any,snapshot:any){
  const c:any=candidates.get(idea.ticker),p=snapshot.portfolios.find((p:any)=>p.name===idea.portfolio),key=idea.portfolio+'\0'+idea.ticker;
  if(!c||!p||seen.has(key)||!['enter','watch','reject'].includes(idea.decision)||!['low','medium','high'].includes(idea.conviction)||!['thesis','driver','risk','portfolioFit'].every(k=>typeof idea[k]==='string'&&idea[k].length>0&&idea[k].length<=3000))throw Error('Unknown or invalid discovery recommendation');seen.add(key);
  let decision=idea.decision;
- if(decision==='enter'&&(c.status!=='eligible'||!p.complete||p.cash<=0||c.sector==='Financials'||isStale(c.quoteTime,Date.now(),c.currency)))decision='watch';
+ if(decision==='enter'&&(c.status!=='eligible'||!p.complete||p.cash<=0||isStale(c.quoteTime,Date.now(),c.currency)))decision='watch';
  const targetWeightPct=Number.isFinite(idea.targetWeightPct)?Math.max(5,Math.min(idea.conviction==='low'?5:15,idea.targetWeightPct)):5;
  return {...idea,decision,targetWeightPct,market:c.market,category:c.category,screenStatus:c.status};
  });

@@ -132,7 +132,10 @@ def calendar_check(info,now):
   if 0<=value-now<=days*86400:
    date=datetime.fromtimestamp(value,timezone.utc).date().isoformat();notice=('Ex-dividend event within 7 days: ' if field=='exDividendDate' else 'Results expected within 14 days: ')+date
    if notice not in notices:notices.append(notice);events.append({'kind':'dividend' if field=='exDividendDate' else 'earnings','at':stamp(value)})
- return {'ok':True,'source':'Yahoo Finance company calendar','checkedAt':stamp(now),'events':events},notices
+ # Most recent results already published: a company review older than this is stale.
+ last=info.get('earningsTimestamp')
+ last_at=stamp(last) if isinstance(last,(int,float)) and not isinstance(last,bool) and now-120*86400<=last<=now else None
+ return {'ok':True,'source':'Yahoo Finance company calendar','checkedAt':stamp(now),'events':events,'lastEarningsAt':last_at},notices
 
 SESSION=BoundedSession()
 

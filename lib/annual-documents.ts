@@ -14,10 +14,17 @@ export async function annualReportsHandler(request:Request,env:any){
  if(request.method==='GET'&&!path){const index=await annualDocumentIndex(env);return Response.json(index,{status:index.available?200:503,headers:{'Cache-Control':'no-store'}});}
  if(request.method==='POST'&&!path){
   if(request.headers.get('Origin')!==url.origin)return Response.json({error:'Invalid request origin.'},{status:403});
-  if(Number(request.headers.get('Content-Length'))>50*1024*1024)return Response.json({error:'Choose a PDF up to 50 MB.'},{status:413});
+  if(Number(request.headers.get('Content-Length'))>200*1024*1024)return Response.json({error:'Choose a PDF up to 200 MB.'},{status:413});
   if(request.headers.get('Content-Type')?.split(';')[0]!=='application/pdf')return Response.json({error:'Upload a PDF annual report.'},{status:415});
   const u=new URL('http://documents/v1/reports');for(const key of ['ticker','period','publishedAt','title','fileName'])if(url.searchParams.has(key))u.searchParams.set(key,url.searchParams.get(key)!);
   const headers:Record<string,string>={'Content-Type':'application/pdf'};if(request.headers.has('Content-Length'))headers['Content-Length']=request.headers.get('Content-Length')!;
+  const response=await documentRequest(env,u.pathname+u.search,{method:'PUT',headers,body:request.body,signal:AbortSignal.timeout(300000),duplex:'half'} as RequestInit);return new Response(response.body,{status:response.status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+ }
+ if(request.method==='POST'&&path==='/chunk'){
+  if(request.headers.get('Origin')!==url.origin)return Response.json({error:'Invalid request origin.'},{status:403});
+  if(Number(request.headers.get('Content-Length'))>50*1024*1024)return Response.json({error:'Chunk exceeds 50 MB.'},{status:413});
+  const u=new URL('http://documents/v1/reports/chunk');for(const key of ['uploadId','index','total','ticker','period','publishedAt','title','fileName'])if(url.searchParams.has(key))u.searchParams.set(key,url.searchParams.get(key)!);
+  const headers:Record<string,string>={'Content-Type':'application/octet-stream'};if(request.headers.has('Content-Length'))headers['Content-Length']=request.headers.get('Content-Length')!;
   const response=await documentRequest(env,u.pathname+u.search,{method:'PUT',headers,body:request.body,signal:AbortSignal.timeout(120000),duplex:'half'} as RequestInit);return new Response(response.body,{status:response.status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
  }
  if(request.method==='DELETE'&&/^\/r_[a-f0-9]{64}$/.test(path)){if(request.headers.get('Origin')!==url.origin)return Response.json({error:'Invalid request origin.'},{status:403});const response=await documentRequest(env,'/v1/reports'+path,{method:'DELETE'});return new Response(response.body,{status:response.status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});}

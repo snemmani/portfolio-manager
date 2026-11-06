@@ -9,7 +9,7 @@ import {publicAddress} from './research-sources.mjs';
 import {reportPageHints} from './report-library.mjs';
 
 /** Bounded issuer-only transport. DNS is checked and pinned for every redirect. */
-export async function downloadPublicDocument(raw,profile,{allowed,resolve=host=>lookup(host,{all:true}),transport=request,maxBytes=50*1024*1024,redirects=0}={}){
+export async function downloadPublicDocument(raw,profile,{allowed,resolve=host=>lookup(host,{all:true}),transport=request,maxBytes=200*1024*1024,redirects=0}={}){
  if(!allowed(raw,profile)||redirects>3)throw Error('Use a public HTTPS document on this company’s issuer or regulatory domain.');
  const url=new URL(raw),addresses=await Promise.race([resolve(url.hostname),new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Source DNS timed out.')),3000);t.unref?.()})]);
  if(!addresses.length||!addresses.every(a=>publicAddress(a.address)))throw Error('Private or reserved source addresses are forbidden.');
@@ -18,14 +18,14 @@ export async function downloadPublicDocument(raw,profile,{allowed,resolve=host=>
   const req=transport(url,{headers:{'User-Agent':'Mozilla/5.0 (Arthapalana company research)',Accept:'application/pdf,text/html,text/plain'},lookup:(_host,options,cb)=>options.all?cb(null,[addresses[0]]):cb(null,addresses[0].address,addresses[0].family)},res=>{
    if([301,302,303,307,308].includes(res.statusCode)&&res.headers.location){res.destroy();downloadPublicDocument(new URL(res.headers.location,url).href,profile,{allowed,resolve,transport,maxBytes,redirects:redirects+1}).then(v=>finish(null,v),e=>finish(e));return}
    const type=String(res.headers['content-type']||'');if(res.statusCode!==200||!/pdf|html|text\/plain|xml/i.test(type)){res.destroy();finish(Error('The primary document returned HTTP '+res.statusCode+' or an unsupported format.'));return}
-   if(Number(res.headers['content-length'])>maxBytes){res.destroy();finish(Error('The primary document exceeds the 50 MB limit.'));return}
-   res.on('data',chunk=>{total+=chunk.length;if(total>maxBytes){res.destroy();finish(Error('The primary document exceeds the 50 MB limit.'))}else chunks.push(chunk)});
+   if(Number(res.headers['content-length'])>maxBytes){res.destroy();finish(Error('The primary document exceeds the 200 MB limit.'));return}
+   res.on('data',chunk=>{total+=chunk.length;if(total>maxBytes){res.destroy();finish(Error('The primary document exceeds the 200 MB limit.'))}else chunks.push(chunk)});
    res.once('end',()=>finish(null,{bytes:Buffer.concat(chunks),url:url.href,contentType:type}));res.once('error',e=>finish(e));
-  });const timer=setTimeout(()=>{req.destroy();finish(Error('The primary document download timed out.'))},25000);req.once('error',e=>finish(e));req.end();
+  });const timer=setTimeout(()=>{req.destroy();finish(Error('The primary document download timed out.'))},60000);req.once('error',e=>finish(e));req.end();
  });
 }
 const htmlText=s=>s.replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
-export function createPublicDocumentReader({profiles={},cacheRoot,allowed,download=downloadPublicDocument,extract=async file=>{const result=await promisify(execFile)('pdftotext',['-layout','-enc','UTF-8',file,'-'],{timeout:30000,maxBuffer:12*1024*1024});return result.stdout}}){
+export function createPublicDocumentReader({profiles={},cacheRoot,allowed,download=downloadPublicDocument,extract=async file=>{const result=await promisify(execFile)('pdftotext',['-layout','-enc','UTF-8',file,'-'],{timeout:60000,maxBuffer:24*1024*1024});return result.stdout}}){
  const memory=new Map(),seen=new Set(),delivered=new Set(),counts=new Map();let characters=0,searches=0;
  async function load(ticker,url){
   const profile=profiles[ticker];if(!profile||!allowed(url,profile))throw Error('This document is outside the current company and issuer scope.');

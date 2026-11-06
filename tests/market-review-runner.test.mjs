@@ -20,7 +20,7 @@ const again=await computeReview(frame,{technicals,load:async()=>{throw Error('Al
 const partial=await computeReview(frame,{load:async ticker=>{if(ticker==='STOCK0')throw new MonitorError('Price source timed out',{code:'PRICE_TIMEOUT',retryable:true});return {}},calculate:()=>({plan:{},technical:{}})});assert.equal(partial.unavailable,5,'One failed stock affects its five portfolio plans, without discarding healthy results');
 const expired=await computeReview({...frame,expiresAt:new Date(Date.now()+1000).toISOString()},{load:async()=>{throw Error('No work after deadline')},calculate:()=>{throw Error('No draft without data')}});assert.equal(expired.unavailable,230);
 let candleCalls=0;const provider=async()=>{candleCalls++;if(candleCalls===1)return new Response('',{status:503});return Response.json({chart:{result:[{meta:{},timestamp:[],indicators:{quote:[]}}]}})};
-await technicalForStock('AAA',{fetcher:provider,sleep:async()=>{},snapshot:()=>({ok:true})});assert.equal(candleCalls,4,'One transient chart failure retries only that chart');
+await technicalForStock('AAA',{fetcher:provider,sleep:async()=>{},snapshot:()=>({ok:true})});assert.equal(candleCalls,5,'One transient chart failure retries only that chart (plus one cached index fetch)');
 let rateCalls=0;await assert.rejects(()=>technicalForStock('AAA',{fetcher:async()=>{rateCalls++;return new Response('',{status:429,headers:{'Retry-After':'60'}})},sleep:async()=>{},snapshot:()=>({})}));assert.equal(rateCalls,3,'A long provider rate limit is deferred, not immediately hammered');
 // Stress the new topology with random failures and checkpoint reuse, without external services.
 let totalPlans=0;for(let pass=0;pass<200;pass++){

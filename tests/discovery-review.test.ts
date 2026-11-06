@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {reviewed as withReviews} from './fundamental-fixture.mjs';
 import {candidateReview,discoveryCoverage,recheckCandidate} from '../lib/discovery-review';
 import {tradeSummary} from '../lib/trade-summary';
 import {planDiscovery} from '../lib/discovery';
@@ -9,7 +10,7 @@ const checked=recheckCandidate(c);assert.equal(checked.status,'watchlist');asser
 assert.equal(recheckCandidate({...c,metrics:{revenue_growth_yoy:10,roe:20}}).status,'eligible');assert.equal(recheckCandidate({...c,status:'rejected'}).status,'rejected');
 const ideas=[{portfolio:'Test',ticker:c.ticker,decision:'enter',market:'IN',conviction:'low',targetWeightPct:5,thesis:'Fits the portfolio.'}];
 assert.deepEqual(discoveryCoverage([c],'Test',[]),{screened:1,eligible:1,reviewed:0,pending:1,approved:0,sized:0});
-const p={name:'Test',cash:1000,value:10000,complete:true};const d={asOf:new Date().toISOString(),candidates:[c]};
+const p={name:'Test',cash:1000,value:10000,complete:true};const d=withReviews({asOf:new Date().toISOString(),candidates:[c]},[{ticker:'OLD.NS'}]);
 assert.equal(planDiscovery(p,[],1000,'India',d,[]).allocations.length,0,'No fabricated approval when review missing');
 const plan=planDiscovery(p,[],1000,'India',d,ideas);assert.equal(plan.allocations[0].quantity,4);assert.equal(plan.allocations[0].amount,444);assert(plan.allocations[0].amount<500,'Low-conviction 3–5% rule permits whole-share rounding below 5%');
 assert.equal(planDiscovery(p,[],1000,'India',d,[{...ideas[0],conviction:'medium'}]).allocations[0].quantity,4,'A nominal 5% target uses the implementable whole-share minimum without exceeding its cap');

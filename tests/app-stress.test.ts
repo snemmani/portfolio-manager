@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {reviewed} from './fundamental-fixture.mjs';
 import {planDiscovery} from '../lib/discovery';
 import {technicalSnapshot,cleanCandles} from '../lib/technicals';
 import {tradeSummary} from '../lib/trade-summary';
@@ -9,7 +10,7 @@ for(let run=0;run<5000;run++){
  const value=10000+random()*1000000,cash=random()*value,p={name:'Test',value,cash,complete:true},budget=random()*value;
  const candidates=Array.from({length:1+Math.floor(random()*20)},(_,i)=>({ticker:'S'+i+'.NS',currency:'INR',market:'IN',category:random()<.3?'C':'B',sector:['Technology','Industrials','Commodities'][Math.floor(random()*3)],status:'eligible',price:1+random()*20000,quoteTime:time}));
  const ideas=candidates.map(c=>({portfolio:'Test',ticker:c.ticker,market:'IN',decision:'enter',targetWeightPct:5+random()*10,conviction:random()<.5?'low':'medium',thesis:'Numerical test'}));
- const d={rulesBased:true,asOf:new Date().toISOString(),events:Object.fromEntries(candidates.map(c=>[c.ticker,event])),candidates,combinedTotal:value};
+ const d=reviewed({rulesBased:true,asOf:new Date().toISOString(),events:Object.fromEntries(candidates.map(c=>[c.ticker,event])),candidates,combinedTotal:value});
  const a=planDiscovery(p,[],budget,'India',d,ideas),total=a.allocations.reduce((s:any,x:any)=>s+x.amount,0);
  assert(total<=Math.min(cash,budget)+1e-6);assert(a.reserve>=-1e-6);assert(Math.abs(total+a.reserve-a.budget)<1e-6);
  assert.equal(new Set(a.allocations.map((x:any)=>x.ticker)).size,a.allocations.length);
@@ -18,7 +19,7 @@ for(let run=0;run<5000;run++){
  assert(amount(c=>['Industrials','Commodities'].includes(c.sector))<=value*.25+1e-6);assert(amount(c=>c.sector==='Commodities')<=value*.20+1e-6);assert(amount(c=>c.category==='C')<=value*.15+1e-6);
 }
 const p={name:'Test',value:10000,cash:5000,complete:true},c={ticker:'AAA.NS',market:'IN',currency:'INR',price:100,quoteTime:time,status:'eligible',sector:'Technology',category:'B'};
-const d={rulesBased:true,asOf:new Date().toISOString(),events:{'AAA.NS':event},candidates:[c]},idea={portfolio:'Test',ticker:c.ticker,market:'IN',decision:'enter',conviction:'medium',targetWeightPct:10,thesis:'Test'};
+const d=reviewed({rulesBased:true,asOf:new Date().toISOString(),events:{'AAA.NS':event},candidates:[c]}),idea={portfolio:'Test',ticker:c.ticker,market:'IN',decision:'enter',conviction:'medium',targetWeightPct:10,thesis:'Test'};
 assert.equal(planDiscovery(p,[],5000,'India',d,[idea,idea]).allocations.length,1,'Duplicate cached ideas cannot allocate twice');
 for(const price of [NaN,Infinity,-5,0])assert.equal(planDiscovery(p,[],5000,'India',{...d,candidates:[{...c,price}]},[idea]).allocations.length,0);
 assert.equal(planDiscovery(p,[],5000,'India',d,[{...idea,targetWeightPct:NaN}]).allocations.length,0);

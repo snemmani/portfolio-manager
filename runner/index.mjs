@@ -10,6 +10,7 @@ import {hostname} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {newResearchThread,verifyAuthentication,researchEnvironment} from './antigravity.mjs';
 import {researchPrompt,researchOutputSchema,documentPreparationPrompt,documentPreparationSchema,validateRecommendations,primarySource} from '../.runner-private/research-contract.mjs';
+const PREP_MINUTES=45; // one-off annual-report summary allowance (cached afterwards)
 const root=new URL('../',import.meta.url),privateDir=new URL('.runner-private/',root),work=fileURLToPath(new URL('work/',privateDir));
 const credentials=JSON.parse(await readFile(new URL('connection.json',privateDir),'utf8'));
 const origin=new URL(credentials.siteUrl);if(!(process.env.ARTHAPALANA_LOCAL==='1'&&origin.href==='http://web:8787/')&&(origin.protocol!=='https:'||origin.pathname!=='/'||!origin.hostname.endsWith('.chatgpt.site')))throw Error('Invalid private Site origin');
@@ -22,7 +23,7 @@ const logTime=()=>new Date().toLocaleString('en-IN',{timeZone:'Asia/Kolkata',hou
 const safeError=e=>String(e?.message||e).replace(/(?:sk-[\w-]+|Bearer\s+\S+)/g,'[redacted]').slice(0,900);
 async function call(payload){const r=await fetch(new URL('/api/runner',origin),{method:'POST',headers:secretHeaders,body:JSON.stringify(payload),redirect:'manual',signal:AbortSignal.timeout(payload.operation==='progress'?5000:60000)});if(!r.ok)throw Object.assign(Error('Dashboard runner endpoint HTTP '+r.status),{status:r.status});return r.json();}
 async function runJob(job){
- let stopped=false,heartbeatError=null,reportSession=null;const deadline=AbortSignal.timeout(20*60*1000);const jobAbort=new AbortController();const progress=createProgressReporter(payload=>call({operation:'progress',leaseToken:job.leaseToken,progress:payload}),{onLeaseLost:()=>jobAbort.abort(),log:event=>console.error(logTime()+' '+JSON.stringify(event))});
+ let stopped=false,heartbeatError=null,reportSession=null;const jobAbort=new AbortController();const progress=createProgressReporter(payload=>call({operation:'progress',leaseToken:job.leaseToken,progress:payload}),{onLeaseLost:()=>jobAbort.abort(),log:event=>console.error(logTime()+' '+JSON.stringify(event))});
  // The lease is renewed while Antigravity works. A network outage never authorizes
  // a second run; completion is retried with the same lease and report.
  const heartbeat=setInterval(()=>{if(!stopped)call({operation:'heartbeat',leaseToken:job.leaseToken}).catch(e=>{heartbeatError=safeError(e);if(e.status===409)jobAbort.abort();});},30000);
@@ -50,8 +51,10 @@ async function runJob(job){
  let preparationReads=0;
  if((job.snapshot.annualDocumentEvidence||[]).some(r=>r.status==='ready'&&r.summaryStatus!=='ready')){
   await progress.phase('documents');
-  const docSignal=AbortSignal.any([active.signal,jobAbort.signal,deadline,AbortSignal.timeout(6*60*1000)]);
-  job.snapshot=await prepareAnnualDocuments({snapshot:job.snapshot,createThread:()=>newResearchThread({model:job.model,workingDirectory:work,reports:reportAccess,documentOnly:true}),runTurn:runResearchTurn,apply:summaries=>call({operation:'document_summaries',leaseToken:job.leaseToken,summaries}),prompt:documentPreparationPrompt,schema:documentPreparationSchema,signal:docSignal,log:event=>console.log(logTime()+' '+JSON.stringify(event)),activity:event=>{preparationReads=Math.max(preparationReads,event.documentReads||0);progress.activity(event)}});
+  // Summarising a report happens once per file and is cached, so it gets its own
+  // generous allowance; the investment review below starts its own clock afterwards.
+  const prepLimit=AbortSignal.timeout(PREP_MINUTES*60*1000),docSignal=AbortSignal.any([active.signal,jobAbort.signal,prepLimit]);
+  try{job.snapshot=await prepareAnnualDocuments({snapshot:job.snapshot,createThread:()=>newResearchThread({model:job.model,workingDirectory:work,reports:reportAccess,documentOnly:true}),runTurn:runResearchTurn,apply:summaries=>call({operation:'document_summaries',leaseToken:job.leaseToken,summaries}),prompt:documentPreparationPrompt,schema:documentPreparationSchema,signal:docSignal,log:event=>console.log(logTime()+' '+JSON.stringify(event)),activity:event=>{preparationReads=Math.max(preparationReads,event.documentReads||0);progress.activity(event)}});}catch(e){if(prepLimit.aborted&&!active.signal.aborted&&!jobAbort.signal.aborted)throw Error('The annual-report summary did not finish within '+PREP_MINUTES+' minutes ('+preparationReads+' report reads). No investment decision was published; retry the review.');throw e;}
   // The investment thread must see the validated cache and its smaller read
   // budget, rather than the manifest captured before document preparation.
   if(reportSession){const refreshed=job.snapshot.annualDocumentManifest||[];await writeFile(reportSession,JSON.stringify({reports:refreshed,profiles:job.snapshot.fundamentalProfiles||{},token:credentials.documentSecret}),{mode:0o600});reportAccess={manifest:refreshed,profiles:job.snapshot.fundamentalProfiles||{},sessionFile:fileURLToPath(reportSession)};}
@@ -59,7 +62,7 @@ async function runJob(job){
  await progress.phase('research');
  const thread=newResearchThread({model:job.model,workingDirectory:work,reports:reportAccess});
  console.log(logTime()+' Research started; authentication=antigravity; provider=antigravity');
- const signal=AbortSignal.any([active.signal,jobAbort.signal,deadline]);
+ const signal=AbortSignal.any([active.signal,jobAbort.signal,AbortSignal.timeout(24*60*1000)]);
  const prompt=researchPrompt(job.snapshot);console.log(logTime()+' '+JSON.stringify({event:'research_context',characters:prompt.length,fullPdfContext:false}));
  const turn=await runResearchTurn(thread,prompt,{outputSchema:researchOutputSchema(job.snapshot),signal},{allowReports:!!reportAccess,log:event=>{console.log(logTime()+' '+JSON.stringify(event));progress.activity({...event,...(event.documentReads!==undefined?{documentReads:preparationReads+event.documentReads}:{})})}});
  if(job.snapshot.fundamentalScope?.length&&!turn.webSearches)throw Error('No public-source research was performed; a numerical snapshot cannot approve an investment.');

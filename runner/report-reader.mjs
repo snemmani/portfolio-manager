@@ -12,7 +12,7 @@ export function reportReaderTools(publicEnabled=false){const property={reportId:
  ].filter(tool=>publicEnabled||tool.name!=='read_public_document').map(tool=>({...tool,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}));}
 export function createReportReader({reports,token,endpoint='http://documents:8790',fetcher=fetch,publicReader}){
  const scope=new Map(reports.map(r=>[r.id,r])),delivered=new Map(),summaryDelivered=new Set(),pagesRead=new Map(),searches=new Set();let usedCharacters=0,searchCount=0;
- const characterBudget=reports.some(r=>r.summaryStatus!=='ready')?300000:50000;
+ const characterBudget=reports.some(r=>r.summaryStatus!=='ready')?1000000:50000,searchBudget=reports.some(r=>r.summaryStatus!=='ready')?250:40;
  async function api(path,body){const r=await fetcher(endpoint+path,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});if(!r.ok)throw Error('The selected report is unavailable or still processing.');return r.json();}
  let serial=Promise.resolve();async function call(name,args={}){
   if(!REPORT_TOOLS.includes(name))throw Error('This report tool is not allowed.');
@@ -32,7 +32,7 @@ export function createReportReader({reports,token,endpoint='http://documents:879
    usedCharacters+=characters;for(const page of newPages)seen.add(page);pagesRead.set(reportId,seen);delivered.set(key,true);return {...data,remainingReportTextCharacters:characterBudget-usedCharacters};
   }
   const searchKey=JSON.stringify([reportId,parameters.query,parameters.cursor||0]);if(searches.has(searchKey))return {reportId,notice:'This search was already returned. Reuse its page references.'};
-  if(searchCount>=40||usedCharacters>=characterBudget)throw Error('The targeted search budget is exhausted. Reuse earlier results and keep unresolved facts unverified.');
+  if(searchCount>=searchBudget||usedCharacters>=characterBudget)throw Error(`The search budget (${searchBudget}) is used up. Do not search again: return the result now with the evidence already gathered and mark unresolved facts unverified.`);
   const data=await api('/v1/reports/'+reportId+'/search',parameters),characters=JSON.stringify(data).length;if(usedCharacters+characters>characterBudget)throw Error('This search would exceed the review text budget. Reuse earlier evidence.');usedCharacters+=characters;searchCount++;searches.add(searchKey);return data;
  }
  return (name,args)=>{const result=serial.catch(()=>{}).then(()=>call(name,args));serial=result;return result;};

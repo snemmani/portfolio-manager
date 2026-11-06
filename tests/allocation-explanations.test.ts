@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {reviewed} from './fundamental-fixture.mjs';
 import {allocationExplanations} from '../lib/allocation-explanations';
 import {planDiscovery} from '../lib/discovery';
 const p={name:'Test',cash:100,value:10000,complete:true};
@@ -13,7 +14,7 @@ rows=allocationExplanations(p,[],'India',{asOf:new Date().toISOString(),candidat
 assert.equal(rows[0].state,'watchlist');assert(rows[0].reasons.includes(c.gateReasons[0]));
 rows=allocationExplanations(p,[],'US',{candidates:[c]},[],{allocations:[],budget:0});assert(rows[0].reasons.some((r:string)=>r.includes('Market mismatch')));assert(rows[0].reasons.some((r:string)=>r.includes('No cash budget')));
 const candidate={...c,status:'eligible',price:100,quoteTime:Date.now()/1000,sector:'Technology',category:'B'};
-const discovery={asOf:new Date().toISOString(),candidates:[candidate]};const ideas=[{portfolio:'Test',ticker:c.ticker,market:'IN',decision:'enter',targetWeightPct:10,conviction:'medium'}];
+const discovery=reviewed({asOf:new Date().toISOString(),candidates:[candidate]});const ideas=[{portfolio:'Test',ticker:c.ticker,market:'IN',decision:'enter',targetWeightPct:10,conviction:'medium'}];
 let plan=planDiscovery(p,[],100,'India',discovery,ideas);assert(plan.skipped[0].reasons.some((r:string)=>r.includes('Remaining cash budget: ₹100 available; ₹500 needed')));
 plan=planDiscovery({...p,cash:5000},[{portfolio:'Test',sector:'Commodities',value:2000}],5000,'India',{...discovery,candidates:[{...candidate,sector:'Commodities'}]},ideas);assert(plan.skipped[0].reasons.some((r:string)=>r.includes('Commodity exposure cap (20%)')));
 plan=planDiscovery(p,[],100,'India',{...discovery,candidates:[{...candidate,quoteTime:1}]},ideas);assert(plan.skipped[0].reasons.some((r:string)=>r.includes('quote is stale')));

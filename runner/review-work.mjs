@@ -1,4 +1,10 @@
 import {MonitorError,safeError} from './market-support.mjs';
+// Index candles for relative strength, shared across stocks for 15 minutes. A failure only drops the comparison.
+const benchmarks=new Map();
+async function benchmarkBars(index,_chart,fetcher){
+ const hit=benchmarks.get(index);if(hit&&Date.now()-hit.at<900000)return hit.bars;
+ try{const r=await fetcher('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(index)+'?interval=1d&range=1y&includePrePost=false',{headers:{'User-Agent':'Mozilla/5.0',Accept:'application/json'},signal:AbortSignal.timeout(8000)});if(!r.ok)return null;const result=(await r.json()).chart?.result?.[0];const q=result?.indicators?.quote?.[0]||{};const bars=(result?.timestamp||[]).map((time,i)=>({time,open:q.open?.[i],high:q.high?.[i],low:q.low?.[i],close:q.close?.[i],volume:q.volume?.[i]}));benchmarks.set(index,{at:Date.now(),bars});return bars;}catch{return null;}
+}
 export async function technicalForStock(ticker,{snapshot,fetcher=fetch,sleep=ms=>new Promise(r=>setTimeout(r,ms)),signal,now=Date.now,log=()=>{}}){
  async function chart(interval,range){
   for(let attempt=1;attempt<=2;attempt++){
@@ -11,8 +17,9 @@ export async function technicalForStock(ticker,{snapshot,fetcher=fetch,sleep=ms=
    }catch(error){log({event:'stock_fetch_error',ticker,interval,range,attempt,code:error.code||error.name,error:safeError(error)});if(attempt===2||error.retryable===false||signal?.aborted||error.retryAfterMs>10000)throw error;await sleep(Math.max(500,error.retryAfterMs||0));}
   }
  }
- const [daily,intraday,quote]=await Promise.all([chart('1d','1y'),chart('5m','5d'),chart('1d','1d')]);
- return snapshot(daily.bars,intraday.bars,quote.meta,now());
+ const index=/\.(NS|BO)$/.test(ticker)?'^NSEI':'^GSPC';
+ const [daily,intraday,quote,bench]=await Promise.all([chart('1d','1y'),chart('5m','5d'),chart('1d','1d'),benchmarkBars(index,chart.bind(null),fetcher)]);
+ return snapshot(daily.bars,intraday.bars,quote.meta,now(),bench);
 }
 export async function computeReview(frame,{technicals={},onProgress=async()=>{},load,calculate,now=Date.now,check=()=>{},log=()=>{},concurrency=4}={}){
  const stocks=[...new Set(frame.targets.map(t=>t.ticker))];let next=0;

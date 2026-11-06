@@ -3,7 +3,7 @@ import sys,json,time,math,re,logging,concurrent.futures,warnings,sqlite3,os
 from datetime import datetime,timezone
 from pathlib import Path
 import yfinance as yf
-from jarvis_screening import _build_sector_aware_queries,_is_us_common_stock,_assess_forward_risk
+from jarvis_screening import _build_sector_aware_queries,_is_us_common_stock,_assess_forward_risk,_parse_analyst_rating
 warnings.filterwarnings('ignore',category=FutureWarning)
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 VERSION='jarvis-paginated-v2'
@@ -120,6 +120,22 @@ def annual_metrics(income,cashflow,balance,now=None):
  metric('fcf',fcf,'Reported annual free cash flow, or operating cash flow less capital expenditure',{'operatingCashFlow':ocf,'capitalExpenditure':capex})
  out['statementDate']=date;return out,evidence
 
+SERIES_ROWS=['Total Revenue','Net Income','EBIT','Interest Expense','Operating Cash Flow','Free Cash Flow','Capital Expenditure','Total Assets','Current Assets','Current Liabilities','Retained Earnings','Total Liabilities Net Minority Interest','Accounts Receivable','Cost Of Revenue','Gross Profit','Net PPE','Depreciation And Amortization','Selling General And Administration','Long Term Debt','Total Debt','Stockholders Equity','Diluted EPS','Basic EPS','Ordinary Shares Number']
+
+def annual_series(income,cashflow,balance):
+ """Raw annual rows (newest first, up to five years) for the server-side Jarvis gates.
+ Field names match Yahoo's annual time-series names, e.g. 'Total Revenue' -> 'TotalRevenue'."""
+ periods=sorted(set(income.columns)|set(cashflow.columns)|set(balance.columns),reverse=True)[:5];rows=[]
+ for period in periods:
+  row={'period':str(period)[:10]}
+  for name in SERIES_ROWS:
+   for frame in (income,cashflow,balance):
+    if name in frame.index and period in frame.columns:
+     value=number(frame.loc[name,period])
+     if value is not None:row[name.replace(' ','')]=value;break
+  if len(row)>1:rows.append(row)
+ return rows
+
 CHECKS=[(r'Rev Growth>([\d.]+)%','revenue_growth_yoy','Revenue growth','>'),(r'NI Growth>([\d.]+)%','earnings_growth_yoy','Earnings growth','>'),(r'ROE>([\d.]+)%','roe','ROE','>'),(r'P/E<([\d.]+)','pe_ttm','P/E','<'),(r'P/B<([\d.]+)','pb','P/B','<'),(r'PEG<([\d.]+)','peg','PEG','<'),(r'ROCE>([\d.]+)%','roce','ROCE','>'),(r'Net Margin>([\d.]+)%','netMargin','Net margin','>'),(r'ICR>([\d.]+)','interestCoverage','Interest coverage','>'),(r'(?<!LT )D/E<([\d.]+)','debtEquity','Debt/equity','<'),(r'LT D/E<([\d.]+)','longTermDebtEquity','Long-term debt/equity','<')]
 def screen_checks(candidate):
  results=[];m=candidate['metrics']
@@ -146,10 +162,14 @@ def enrich(item):
    if v is not None:return v
   return None
  financial=(info.get('sector') or q.get('sector'))=='Financial Services'
- try:annual,evidence=annual_metrics(obj.income_stmt,obj.cashflow,obj.balance_sheet)
+ series=[]
+ try:
+  income,cashflow,balance=obj.income_stmt,obj.cashflow,obj.balance_sheet
+  annual,evidence=annual_metrics(income,cashflow,balance)
+  series=annual_series(income,cashflow,balance)
  except Exception:annual,evidence={}, {'error':'Aligned annual financial statements unavailable.'}
  if evidence.get('error'):gaps.append(evidence['error'])
- metrics={**annual,'eps_ttm':get('trailingEps','epsTrailingTwelveMonths'),'eps_forward':get('forwardEps','epsForward'),'pe_ttm':get('trailingPE'),'pe_forward':get('forwardPE'),'pb':get('priceToBook'),'peg':get('trailingPegRatio','pegRatio'),'marketCap':get('marketCap'),'financialCurrency':info.get('financialCurrency',q.get('financialCurrency'))}
+ metrics={**annual,'eps_ttm':get('trailingEps','epsTrailingTwelveMonths'),'eps_forward':get('forwardEps','epsForward'),'pe_ttm':get('trailingPE'),'pe_forward':get('forwardPE'),'pb':get('priceToBook'),'peg':get('trailingPegRatio','pegRatio'),'marketCap':get('marketCap'),'analystRating':_parse_analyst_rating(info.get('averageAnalystRating',q.get('averageAnalystRating'))),'financialCurrency':info.get('financialCurrency',q.get('financialCurrency'))}
  td={**metrics,'forensic_flags':[]};gate=_assess_forward_risk(ticker,{**q,**info},td,[])
  if financial and gate['status']=='eligible':gate['status']='watchlist';gate['all_reasons'].append('Banking/insurance asset-quality and capital checks are not available; manual review is required.')
  missing=[key for key in ['revenue_growth_yoy','earnings_growth_yoy','eps_ttm','eps_forward','cash_conversion_ratio'] if metrics.get(key) is None]
@@ -160,7 +180,7 @@ def enrich(item):
  if not price or price<=0 or not quote_time or currency!=expected:gate['status']='watchlist' if gate['status']!='rejected' else 'rejected';gate['all_reasons'].append('Valid market price, timestamp and trading currency are required.')
  if metrics['financialCurrency']!=expected and gate['status']!='rejected':gate['status']='watchlist';gate['all_reasons'].append('Statement currency must match the trading currency; conversion is not inferred.')
  sector=info.get('sector',q.get('sector','Unknown'));canonical='Financials' if financial else 'Technology' if sector=='Technology' else 'Healthcare' if sector=='Healthcare' else 'Consumer' if sector.startswith('Consumer') else 'Industrials' if sector=='Industrials' else 'Commodities' if sector in ['Basic Materials','Energy','Utilities'] else 'Services'
- c={'ticker':ticker,'name':info.get('shortName',q.get('shortName',ticker)),'market':item['market'],'category':item['category'],'sector':canonical,'industry':info.get('industry','Unknown'),'currency':currency,'price':price,'quoteTime':quote_time,'status':gate['status'],'gateReasons':[s.replace('₹','$') if item['market']=='US' else s for s in gate['all_reasons']],'matchedScreens':item['matchedScreens'],'metrics':metrics,'metricEvidence':evidence,'headlines':[],'evidenceGaps':gaps+['News/calendar checks run separately for proposed trades.','Full five-year forensic accounting, moat and management delivery are unverified.'],'sourceUrl':'https://finance.yahoo.com/quote/'+ticker+'/','screenedAt':stamp(),'criteriaVersion':VERSION}
+ c={'ticker':ticker,'name':info.get('shortName',q.get('shortName',ticker)),'market':item['market'],'category':item['category'],'sector':canonical,'industry':info.get('industry','Unknown'),'currency':currency,'price':price,'quoteTime':quote_time,'status':gate['status'],'gateReasons':[s.replace('₹','$') if item['market']=='US' else s for s in gate['all_reasons']],'matchedScreens':item['matchedScreens'],'metrics':metrics,'metricEvidence':evidence,'annualSeries':series,'headlines':[],'evidenceGaps':gaps+['News/calendar checks run separately for proposed trades.','Full five-year forensic accounting, moat and management delivery are unverified.'],'sourceUrl':'https://finance.yahoo.com/quote/'+ticker+'/','screenedAt':stamp(),'criteriaVersion':VERSION}
  checks=screen_checks(c);passed=next((s for s in checks if s['passed']),None)
  if not passed and c['status']=='eligible':c['status']='watchlist';c['gateReasons']+=list(dict.fromkeys(x for s in checks for x in s['failed']+s['missing']))
  if passed:c['category']=passed['category']

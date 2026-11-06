@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import {reviewed} from './fundamental-fixture.mjs';
 import {validateDiscovery,validateIdeas,planDiscovery} from '../lib/discovery';
 const time=Date.now()/1000;
 const portfolio={name:'Test',cash:5000,value:10000,complete:true};
 const snapshot={holdings:[{ticker:'OLD.NS',portfolio:'Test'}],portfolios:[portfolio]};
 const candidate:any={ticker:'NEW.NS',market:'IN',name:'New company',category:'B',sector:'Technology',currency:'INR',status:'eligible',price:100,quoteTime:time,matchedScreens:[{category:'B',bucket:'General GARP',criteria:'PEG<1.5'}],metrics:{revenue_growth_yoy:20,earnings_growth_yoy:20,cash_conversion_ratio:1},gateReasons:[]};
 const raw={asOf:new Date().toISOString(),screens:[],errors:[],candidates:[candidate]};
-const discovery=validateDiscovery(raw,snapshot);assert.equal(discovery.candidates[0].status,'eligible');
+const discovery=reviewed(validateDiscovery(raw,snapshot),[{ticker:'NEW',currency:'USD'}]);assert.equal(discovery.candidates[0].status,'eligible');
 assert.throws(()=>validateDiscovery({...raw,candidates:[{...candidate,ticker:'OLD.NS'}]},snapshot));
 assert.throws(()=>validateDiscovery({...raw,candidates:[candidate,candidate]},snapshot));
 assert.equal(validateDiscovery({...raw,candidates:[{...candidate,quoteTime:1}]},snapshot).candidates[0].status,'watchlist');

@@ -16,8 +16,12 @@ export async function startDocuments({root,token,host='0.0.0.0',port=8790,librar
   if(u.pathname==='/v1/reports'&&req.method==='GET')return json(res,200,library.index());
   if(u.pathname==='/v1/reports'&&req.method==='PUT'){
    if(req.headers['content-type']?.split(';')[0]!=='application/pdf')return json(res,415,{error:'Choose a PDF annual report.'});
-   if(Number(req.headers['content-length'])>library.maxBytes)return json(res,413,{error:'The PDF exceeds the 50 MB upload limit.'});if(uploads>=2)return json(res,429,{error:'Two reports are uploading. Please retry shortly.'});uploads++;
+   if(Number(req.headers['content-length'])>library.maxBytes)return json(res,413,{error:'The PDF exceeds the 200 MB upload limit.'});if(uploads>=2)return json(res,429,{error:'Two reports are uploading. Please retry shortly.'});uploads++;
    try{const report=await library.ingest(req,Object.fromEntries(u.searchParams));return json(res,report.duplicate?200:202,{ok:true,report});}finally{uploads--;}
+  }
+  if(u.pathname==='/v1/reports/chunk'&&req.method==='PUT'){
+   if(uploads>=4)return json(res,429,{error:'Upload capacity reached. Please retry shortly.'});uploads++;
+   try{const result=await library.ingestChunk(req,Object.fromEntries(u.searchParams));return json(res,result.report?.duplicate?200:result.report?202:200,{ok:true,...result});}finally{uploads--;}
   }
   if(u.pathname==='/v1/evidence'&&req.method==='POST'){const b=await body(req);if(!Array.isArray(b.ids)||b.ids.length>16||!b.ids.every(id=>REPORT_ID.test(id)))return json(res,400,{error:'Invalid report selection.'});return json(res,200,{reports:await library.evidence(b.ids)});}
   if(u.pathname==='/v1/summaries'&&req.method==='POST'){const b=await body(req);if(!Array.isArray(b.summaries)||b.summaries.length>12)return json(res,400,{error:'Invalid summary batch.'});const results=[];for(const summary of b.summaries)results.push(await library.saveSummary(summary,b.companies?.[summary.ticker]||''));return json(res,200,{checks:results});}

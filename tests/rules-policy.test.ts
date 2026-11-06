@@ -4,12 +4,15 @@ import {planDiscovery} from '../lib/discovery';
 import {mergeRecommendations} from '../lib/merge-recommendations';
 import {marketHours} from '../lib/research-schedule';
 import {recheckCandidate} from '../lib/discovery-review';
+import {storedFundamental} from './fundamental-fixture.mjs';
 const event={ok:true,checkedAt:new Date().toISOString(),issues:[],fingerprint:'clear'};
 assert(eventSafety(event).clear);assert(!eventSafety(null).clear);assert(!eventSafety({...event,ok:false},'clear').clear);assert(!eventSafety({...event,checkedAt:'2000-01-01'}).clear);
 const flagged={...event,issues:['Possible regulatory investigation'],fingerprint:'event1'};assert(!eventSafety(flagged).clear);assert(eventSafety(flagged,'event1').clear);assert(!eventSafety({...flagged,fingerprint:'event2'},'event1').clear);
 const p={name:'Test',value:10000,cash:5000,complete:true},h={ticker:'AAA.NS',portfolio:'Test',action:'Add candidate',currency:'INR',value:500,price:100,fx:1,sector:'Technology',category:'B',quote:{time:Date.now()/1000},reasons:['Revenue and earnings growth exceed 15%.'],risks:[]};
-const d={rulesBased:true,asOf:new Date().toISOString(),candidates:[],events:{'AAA.NS':event},eventAcks:{},combinedTotal:10000};
-assert.equal(planDiscovery(p,[h],1000,'India',d,[]).allocations[0].quantity,5,'Existing-stock add sizes without AI or a report');
+// Purchases need the company-review policy; without it the check fails closed.
+const d={rulesBased:true,asOf:new Date().toISOString(),candidates:[],events:{'AAA.NS':event},eventAcks:{},combinedTotal:10000,fundamentalPolicy:'investor-v1',fundamentalReviews:{'AAA.NS':storedFundamental('AAA.NS'),'NEW.NS':storedFundamental('NEW.NS')}};
+assert.equal(planDiscovery(p,[h],1000,'India',{...d,fundamentalPolicy:undefined},[]).allocations.length,0,'A missing review policy fails closed');
+assert.equal(planDiscovery(p,[h],1000,'India',d,[]).allocations[0].quantity,5,'Existing-stock add sizes from the rules and the stored company review');
 assert.equal(planDiscovery(p,[h],1000,'India',{...d,events:{}},[]).allocations.length,0,'Missing event coverage blocks buys');
 assert.equal(planDiscovery(p,[h],1000,'India',{...d,events:{'AAA.NS':flagged}},[]).allocations.length,0);
 assert.equal(mergeRecommendations([h],[{portfolio:'Test',ticker:'AAA.NS',action:'hold',reasons:['Advisory hold.'],risks:[]}],d)[0].action,'Buy','AI opinion is not a numerical buy gate');

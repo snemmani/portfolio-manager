@@ -28,7 +28,16 @@ try{
  assert.equal((await api('/v1/reports/'+meta.id,{method:'DELETE'})).status,200);assert.equal((await(await api('/v1/reports')).json()).reports.length,0);assert.equal((await api('/v1/reports/'+meta.id+'/download')).status,404);
  const restored=(await(await upload()).json()).report;assert.equal(restored.status,'ready');assert.equal(restored.summaryStatus,'ready','Restoring identical company/year/file reuses the prior summary');
  const scanned=await upload(reportPdf([[]]),{ticker:'SCAN.NS'});const scanId=(await scanned.json()).report.id;for(let i=0;i<100&&service.library.reports.get(scanId).status==='processing';i++)await new Promise(r=>setTimeout(r,25));assert.equal(service.library.reports.get(scanId).status,'needs_ocr');
- assert.equal((await readdir(root)).filter(x=>x.startsWith('.upload')).length,0,'Failed/duplicate uploads leave no temporary files');
+ const chunkedPdf=reportPdf([['Chunk Industries Limited','Annual Report 2026-2027','Year ended 31 March 2026'],['Figures in INR millions','Period 2026-03-31 Revenue 100 Net income 10 Operating cash flow 12 Debt 5 Equity 50','The auditor reports no qualification in this fictional test document.']]);
+ const half=Math.floor(chunkedPdf.length/2),uId='test-chunk-1234567890';
+ const c0=await api('/v1/reports/chunk?'+new URLSearchParams({uploadId:uId,index:'0',total:'2',ticker:'CHUNK.NS',period:'2026-03-31',fileName:'chunk.pdf'}),{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:chunkedPdf.subarray(0,half)});
+ assert.equal(c0.status,200);assert.equal((await c0.json()).ready,false);
+ const c1=await api('/v1/reports/chunk?'+new URLSearchParams({uploadId:uId,index:'1',total:'2',ticker:'CHUNK.NS',period:'2026-03-31',fileName:'chunk.pdf'}),{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:chunkedPdf.subarray(half)});
+ assert.equal(c1.status,202);const chunkReport=(await c1.json()).report;
+ assert.equal(chunkReport.ticker,'CHUNK.NS');
+ for(let i=0;i<100&&service.library.reports.get(chunkReport.id).status==='processing';i++)await new Promise(r=>setTimeout(r,25));
+ assert.equal(service.library.reports.get(chunkReport.id).status,'ready');
+ assert.equal((await readdir(root)).filter(x=>x.startsWith('.upload')||x.startsWith('.chunks')).length,0,'Failed/duplicate uploads leave no temporary files');
  console.log('PASS: real PDF extraction, source-service auth, size/type limits, hash dedupe, scoped page/search reads, literal identity/year/unit checks, cached facts, restart persistence, safe archive/restore and scanned-PDF handling. No AI or live portfolio changes.');
 }finally{if(service)await new Promise(r=>service.server.close(r));await rm(root,{recursive:true,force:true});}
 // A report archived during extraction cannot be resurrected by late worker completion.

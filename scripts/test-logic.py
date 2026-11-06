@@ -7,7 +7,7 @@ def bundle(source,out):run(['./node_modules/esbuild/bin/esbuild',source,'--bundl
 for path in sorted((root/'tests').glob('*.test.ts')):
  out='/tmp/arthapalana-'+path.stem+'.mjs';bundle(str(path),out);run([node,out])
 for source,out in [('lib/ai.ts','runner-api'),('lib/execution.ts','execution'),('lib/alerts.ts','alerts'),('lib/market-handler.ts','market-handler'),('lib/market-review.ts','market-review'),('lib/event-policy.ts','event-policy'),('tests/trade-api-entry.ts','trades'),('lib/qualifying-buys.ts','qualifying-buys'),('lib/data.ts','data-integrity')]:bundle(source,'/tmp/arthapalana-'+out+'.mjs')
-for name in ['execution-api','rules-execution-api','alerts','runner-api','market-monitor-api','market-review-api','qualifying-buys','technical-refresh','antigravity','trade-api','data-integrity-api','web-health']:run([node,'tests/'+name+'.test.mjs'])
+for name in ['execution-api','rules-execution-api','alerts','runner-api','market-monitor-api','market-review-api','qualifying-buys','technical-refresh','antigravity','trade-api','data-integrity-api','web-health','d1-sync','r2-sync']:run([node,'tests/'+name+'.test.mjs'])
 run([str(root/'.runner-runtime/python/bin/python'),'tests/event-monitor.test.py'])
 
 run([str(root/'.runner-runtime/python/bin/python'),'tests/discovery-pipeline.test.py'])
