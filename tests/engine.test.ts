@@ -6,7 +6,11 @@ const rows=[row(1,'Buy',10,100),row(2,'Buy',10,200),row(3,'Sell',15,250),row(4,'
 const book=ledger(rows,{'AAA.NS':q()},85),p=book.portfolios[0],h=book.holdings[0];
 assert.equal(h.shares,5);assert.equal(h.basisNative,1000);assert.equal(p.realised,1750);assert.equal(p.cash,5000);assert.equal(h.value,500);assert.equal(p.value,5500);
 assert.equal(ledger(rows,{},85).holdings[0].value,null);assert.equal(ledger(rows,{},85).portfolios[0].complete,false);
-const nofx=ledger([row(1,'Buy',2,100,'2025-01-01','ORCL')],{ORCL:{...q('ORCL'),currency:'USD'}},null);assert.equal(nofx.holdings[0].value,null);assert.equal(nofx.holdings[0].nonDiscretionary,true);
+const nofx=ledger([row(1,'Buy',2,100,'2025-01-01','ORCL'),row(2,'Buy',1,50,'2025-01-01','MSFT')],{ORCL:{...q('ORCL'),currency:'USD'},MSFT:{...q('MSFT'),currency:'USD'}},null);const orcl=nofx.holdings.find((h:any)=>h.ticker==='ORCL');assert.equal(orcl.value,null);assert.equal(orcl.nonDiscretionary,true);
+// A portfolio holding only locked plans is hidden from holdings, portfolios, totals and household weights.
+const locked=ledger([row(1,'Buy',10,100),row(2,'Buy',5,100,'2025-01-01','ORCL','Plan')],{'AAA.NS':q(),ORCL:{...q('ORCL',100),currency:'USD'}},85);
+assert.deepEqual(locked.portfolios.map((p:any)=>p.name),['Test']);assert.ok(locked.holdings.every((h:any)=>h.ticker!=='ORCL'));assert.equal(locked.totals.value,1000);assert.equal(locked.holdings[0].aggregateWeight,100);
+assert.deepEqual(locked.hiddenPortfolios.map((p:any)=>[p.name,p.value]),[['Plan',42500]]);assert.ok(locked.tradeHistory.every((h:any)=>h.portfolio!=='Plan'));
 const oversold=ledger([row(1,'Sell',10,100)],{'AAA.NS':q()},85);assert.equal(oversold.warnings.length,1);
 const split=ledger([row(1,'Buy',10,100)],{'AAA.NS':{...q(),splits:[{date:'2025-06-01',ratio:2}]}},85);assert.equal(split.holdings[0].invalid,true);assert.equal(split.holdings[0].shares,10);
 const trim=assess({...h,value:3000,weight:30,shares:30,recent:true}, {...p,value:10000},undefined);assert.equal(trim.action,'Trim');assert.equal(trim.quantity,15);assert.match(trim.reasons.join(' '),/recently/);assert.doesNotMatch(trim.reasons.join(' '),/Is this too early/);
@@ -21,4 +25,4 @@ const plan=deployment(dp,[dh],10000,'India');assert.equal(plan.budget,1000);asse
 assert.equal(deployment(dp,[{...dh,aggregateWeight:16}],1000,'India').reserve,1000);
 assert.equal(deployment({...dp,complete:false},[dh],1000,'India').allocations.length,0);
 assert.equal(isStale(null),true);assert.equal(isStale(Date.parse('2026-11-03T10:00:00Z')/1000,Date.parse('2026-11-03T13:00:00Z'),'INR'),false);
-console.log('PASS: FIFO, explicit cash, missing prices/FX, oversells, corporate actions, ORCL lock, stale-price gates, recent-lot patience, sector gates and cash caps.');
+console.log('PASS: FIFO, explicit cash, missing prices/FX, oversells, corporate actions, ORCL lock, hidden locked-only portfolios, stale-price gates, recent-lot patience, sector gates and cash caps.');

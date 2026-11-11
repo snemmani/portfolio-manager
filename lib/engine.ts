@@ -54,11 +54,17 @@ export function ledger(rows:Row[],quotes:Record<string,Quote>,fx:number|null){
  p.complete=!p.invalidLedger&&p.unpriced===0&&!Object.values(p.positions).some((pos:any)=>pos.invalid)&&!p.holdings.some((h:any)=>h.invalid||h.quote?.stale);
  for(const h of p.holdings)h.weight=p.complete&&p.value>0&&h.value!==null?h.value/p.value*100:null;
  }
+ // A portfolio holding only locked plans (the ORCL employee plan) cannot be acted on here, so it is
+ // left out of every list, total and household weight. Its ledger is untouched.
+ const lockedOnly=(p:any)=>p.holdings.length>0&&p.holdings.every((h:any)=>h.nonDiscretionary)&&!(p.cash>0);
+ const hiddenPortfolios=Object.values(portfolios).filter(lockedOnly).map((p:any)=>({name:p.name,value:p.value,holdings:p.holdings.map((h:any)=>h.ticker)}));
+ for(const hp of hiddenPortfolios)delete portfolios[hp.name];
+ const hiddenNames=new Set(hiddenPortfolios.map(p=>p.name));
  const holdings=Object.values(portfolios).flatMap((p:any)=>p.holdings);
  const totalValue=Object.values(portfolios).reduce((s:number,p:any)=>s+p.value,0);
  const aggregate:Record<string,number>={};for(const h of holdings)aggregate[h.ticker]=(aggregate[h.ticker]||0)+(h.value||0);
  for(const h of holdings){h.aggregateWeight=totalValue>0?aggregate[h.ticker]/totalValue*100:null;h.aggregateValue=aggregate[h.ticker];h.combinedTotal=totalValue;}
- return {portfolios:Object.values(portfolios),holdings,tradeHistory,warnings,totals:{value:totalValue,equity:Object.values(portfolios).reduce((s:number,p:any)=>s+p.equity,0),cash:Object.values(portfolios).reduce((s:number,p:any)=>s+p.cash,0),invested:Object.values(portfolios).reduce((s:number,p:any)=>s+p.invested,0),realised:Object.values(portfolios).reduce((s:number,p:any)=>s+p.realised,0),unpriced:holdings.filter(h=>h.value===null).length}};
+ return {portfolios:Object.values(portfolios),holdings,tradeHistory:tradeHistory.filter((h:any)=>!hiddenNames.has(h.portfolio)),warnings,hiddenPortfolios,totals:{value:totalValue,equity:Object.values(portfolios).reduce((s:number,p:any)=>s+p.equity,0),cash:Object.values(portfolios).reduce((s:number,p:any)=>s+p.cash,0),invested:Object.values(portfolios).reduce((s:number,p:any)=>s+p.invested,0),realised:Object.values(portfolios).reduce((s:number,p:any)=>s+p.realised,0),unpriced:holdings.filter(h=>h.value===null).length}};
 }
 const pct=(n:number|null)=>n===null?'unavailable':`${n.toFixed(1)}%`;
 export function assess(h:any,p:any,f:Fundamentals|undefined){

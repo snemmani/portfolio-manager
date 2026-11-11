@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { Moon, Sun, Monitor } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
+/** Theme: dark (default), light or follow the system. Stored per browser. */
 export default function ThemeSelector() {
-  const [theme, setTheme] = useState('system');
+  const [theme, setTheme] = useState('dark');
 
   useEffect(() => {
     try {
@@ -16,10 +18,8 @@ export default function ThemeSelector() {
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
-      document.documentElement.dataset.theme =
-        theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
-      document.documentElement.style.colorScheme =
-        document.documentElement.dataset.theme;
+      document.documentElement.dataset.theme = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+      document.documentElement.style.colorScheme = document.documentElement.dataset.theme;
     };
     apply();
     media.addEventListener('change', apply);
@@ -30,42 +30,26 @@ export default function ThemeSelector() {
   }, [theme]);
 
   return (
-    <div
-      className="range-buttons theme-toggle-group"
-      role="group"
-      aria-label="Color theme"
-      style={{ display: 'inline-flex', alignItems: 'center' }}
-    >
-      <button
-        type="button"
-        title="Light theme"
-        aria-label="Light theme"
-        className={theme === 'light' ? 'selected' : ''}
-        onClick={() => setTheme('light')}
-        style={{ padding: '4px 7px', display: 'grid', placeItems: 'center' }}
-      >
-        <Sun size={14} />
-      </button>
-      <button
-        type="button"
-        title="System theme"
-        aria-label="System theme"
-        className={theme === 'system' ? 'selected' : ''}
-        onClick={() => setTheme('system')}
-        style={{ padding: '4px 7px', display: 'grid', placeItems: 'center' }}
-      >
-        <Monitor size={14} />
-      </button>
-      <button
-        type="button"
-        title="Dark theme"
-        aria-label="Dark theme"
-        className={theme === 'dark' ? 'selected' : ''}
-        onClick={() => setTheme('dark')}
-        style={{ padding: '4px 7px', display: 'grid', placeItems: 'center' }}
-      >
-        <Moon size={14} />
-      </button>
+    <div role="group" aria-label="Colour theme" className="inline-flex h-7 items-center rounded-md border border-line bg-panel p-0.5">
+      {(
+        [
+          ['light', Sun, 'Light theme'],
+          ['system', Monitor, 'System theme'],
+          ['dark', Moon, 'Dark theme'],
+        ] as const
+      ).map(([value, Icon, label]) => (
+        <button
+          key={value}
+          type="button"
+          title={label}
+          aria-label={label}
+          aria-pressed={theme === value}
+          onClick={() => setTheme(value)}
+          className={cn('grid h-6 w-6 place-items-center rounded-[4px] text-muted-foreground hover:text-foreground', theme === value && 'bg-raised text-foreground')}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      ))}
     </div>
   );
 }

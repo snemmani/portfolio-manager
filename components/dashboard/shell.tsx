@@ -11,21 +11,22 @@ import {
   Clock,
   ShieldCheck,
   Settings,
-  LockKeyhole,
-  ChevronRight,
-  Check,
+  MoreHorizontal,
   RefreshCw,
   AlertTriangle,
-  TrendingUp,
-  ArrowRight,
+  Search,
+  ChevronDown,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useApi } from '../../lib/client/use-api';
 import { invalidateResources } from '../../lib/client/resource-store';
-import { compact, percent, date } from './shared';
+import { date } from './shared';
 import AppClock from './clock';
 import ThemeSelector from './theme';
 import ResearchActivity from '../research/activity';
 import { ModuleBoundary, ModuleLoading } from './resilience';
+import { CommandPalette } from '../terminal/command-palette';
+import { pct } from '../terminal/format';
 
 const modules: Record<string, any> = {
   Overview: lazy(() => import('./overview')),
@@ -42,7 +43,7 @@ const modules: Record<string, any> = {
 const Drawer = lazy(() => import('./holding-drawer'));
 const Execution = lazy(() => import('../execution-panel'));
 
-const paths: Record<string, string> = {
+export const paths: Record<string, string> = {
   Overview: '/',
   Holdings: '/holdings',
   Recommendations: '/recommendations',
@@ -55,19 +56,19 @@ const paths: Record<string, string> = {
 };
 
 const titles: Record<string, string> = {
-  Overview: 'Portfolio overview',
-  Holdings: 'Your holdings',
-  Recommendations: 'Today’s decisions',
+  Overview: 'Overview',
+  Holdings: 'Holdings',
+  Recommendations: 'Decisions',
   'Deploy cash': 'Deploy cash',
-  Transactions: 'Transaction ledger',
+  Transactions: 'Transactions',
   Framework: 'Investment framework',
-  Settings: 'Desk configuration & alerts',
-  'AI reviews': 'Research intelligence',
-  'Annual reports': 'Annual report library',
+  Settings: 'Settings',
+  'AI reviews': 'AI reviews',
+  'Annual reports': 'Annual reports',
 };
 
 const subtitles: Record<string, string> = {
-  Overview: 'Value, returns and where your money sits across every portfolio.',
+  Overview: 'Value, returns and what needs you across every portfolio.',
   Holdings: 'Every position with its Jarvis gates, weight and price against value.',
   Recommendations: 'Only what needs a decision. Mandatory checks block; warnings shrink the position.',
   'Deploy cash': 'Screened companies, their investment cases and what your cash can buy today.',
@@ -78,68 +79,50 @@ const subtitles: Record<string, string> = {
   'Annual reports': 'Uploaded annual reports shared by every company review.',
 };
 
+export const NAV: { group: string; items: [any, string, string?][] }[] = [
+  { group: 'Portfolio', items: [[LayoutDashboard, 'Overview'], [BarChart3, 'Holdings'], [Clock, 'Transactions']] },
+  { group: 'Act', items: [[Sparkles, 'Recommendations', 'Decisions'], [Wallet, 'Deploy cash']] },
+  { group: 'Research', items: [[Activity, 'AI reviews'], [BookOpen, 'Annual reports'], [ShieldCheck, 'Framework']] },
+];
+
+const INDEX_NAMES: Record<string, string> = { '^NSEI': 'NIFTY', '^BSESN': 'SENSEX', '^GSPC': 'S&P 500' };
+
 function urlView(fallback: string) {
   const u = new URL(location.href);
   const query = u.searchParams.get('view');
   return (
-    Object.keys(paths).find(
-      (v) => paths[v] === u.pathname && u.pathname !== '/'
-    ) ||
+    Object.keys(paths).find((v) => paths[v] === u.pathname && u.pathname !== '/') ||
     Object.keys(paths).find((v) => v.toLowerCase().replaceAll(' ', '-') === query) ||
     fallback
   );
 }
 
-export default function DashboardShell({
-  initialView = 'Overview',
-}: {
-  initialView?: string;
-}) {
+const DECISION_ACTIONS = ['Trim', 'Trim review', 'Exit review', 'Profit review'];
+
+export default function DashboardShell({ initialView = 'Overview' }: { initialView?: string }) {
   const [view, setView] = useState(initialView);
   const [portfolio, setPortfolio] = useState('All portfolios');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [executionTarget, setExecutionTarget] = useState<any>(null);
 
-  const needsPortfolio = ![
-    'Settings',
-    'Framework',
-    'AI reviews',
-    'Annual reports',
-  ].includes(view);
-  const snapshot = useApi('/api/portfolio', {
-    enabled: needsPortfolio,
-    interval: 300000,
-  });
+  const needsPortfolio = !['Settings', 'Framework', 'AI reviews', 'Annual reports'].includes(view);
+  const snapshot = useApi('/api/portfolio', { enabled: needsPortfolio, interval: 300000 });
   const data = snapshot.data;
   const portfolios = data?.portfolios || [];
-  const holdings = useMemo(
+  const decisions = useMemo(
     () =>
-      data?.holdings.filter(
-        (h: any) => portfolio === 'All portfolios' || h.portfolio === portfolio
-      ) || [],
-    [data, portfolio]
-  );
-  const totals =
-    portfolios.find((p: any) => p.name === portfolio) || data?.totals;
-  const priorities = useMemo(
-    () =>
-      holdings.filter((h: any) =>
-        [
-          'Trim',
-          'Trim review',
-          'Exit review',
-          'Profit review',
-        ].includes(h.action)
-      ),
-    [holdings]
+      (data?.holdings || []).filter(
+        (h: any) => (portfolio === 'All portfolios' || h.portfolio === portfolio) && DECISION_ACTIONS.includes(h.action),
+      ).length,
+    [data, portfolio],
   );
 
   useEffect(() => {
     const sync = () => {
       setView(urlView(initialView));
-      setPortfolio(
-        new URL(location.href).searchParams.get('portfolio') || 'All portfolios'
-      );
+      setPortfolio(new URL(location.href).searchParams.get('portfolio') || 'All portfolios');
       setSelected(null);
       setExecutionTarget(null);
     };
@@ -147,9 +130,17 @@ export default function DashboardShell({
     window.addEventListener('popstate', sync);
     const choose = (event: any) => selectPortfolio(event.detail);
     window.addEventListener('arthapalana-portfolio', choose);
+    const key = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', key);
     return () => {
       window.removeEventListener('popstate', sync);
       window.removeEventListener('arthapalana-portfolio', choose);
+      window.removeEventListener('keydown', key);
     };
   }, [initialView]);
 
@@ -158,518 +149,316 @@ export default function DashboardShell({
     if (name !== 'All portfolios') u.searchParams.set('portfolio', name);
     history.pushState({}, '', u.pathname + u.search);
   }
-
   function navigate(v: string) {
     setView(v);
     setSelected(null);
     setExecutionTarget(null);
+    setMoreOpen(false);
     changeUrl(v, portfolio);
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
-
   function selectPortfolio(name: string) {
     setPortfolio(name);
     setSelected(null);
     setExecutionTarget(null);
     changeUrl(urlView(view), name);
   }
-
-  const showExecution = (
-    ticker: string,
-    portfolio?: string,
-    budget?: string,
-    allowExit = false
-  ) => {
+  const showExecution = (ticker: string, portfolio?: string, budget?: string, allowExit = false) => {
     setSelected(null);
     setExecutionTarget({ ticker, portfolio, budget, allowExit });
   };
+  const refresh = () => {
+    if (needsPortfolio) void snapshot.refresh();
+    invalidateResources(['/api/research/status']);
+  };
 
   const View = modules[view] || modules.Overview;
+  const link = (label: string, onClick: () => void) => ({
+    href: paths[label],
+    onClick: (e: React.MouseEvent) => {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      onClick();
+    },
+  });
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <a
-          className="brand"
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('Overview');
-          }}
-        >
-          <span className="brand-mark">
-            <Activity size={20} />
-          </span>
-          <span>
-            artha<span className="brand-light">palana</span>
-            <small>PORTFOLIO INTELLIGENCE</small>
-          </span>
+    <div className="min-h-screen bg-background font-sans text-foreground lg:grid lg:grid-cols-[208px_minmax(0,1fr)]">
+      {/* Sidebar (desktop) */}
+      <aside className="sticky top-0 hidden h-screen flex-col overflow-y-auto border-r border-line bg-panel lg:flex">
+        <a {...link('Overview', () => navigate('Overview'))} className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+          <span className="grid size-6 place-items-center rounded-[5px] bg-brand font-mono text-[13px] font-bold text-primary-foreground">अ</span>
+          <span className="font-mono text-[13px] font-semibold tracking-tight">arthapalana</span>
         </a>
-
-        <div className="workspace">
-          <span className="avatar">SN</span>
-          <div>
-            <strong>Investment Desk</strong>
-            <small>
-              Private workspace <LockKeyhole size={10} />
-            </small>
-          </div>
-        </div>
-
-        {/* Group 1: Portfolio Hub */}
-        <div className="nav-label">PORTFOLIO HUB</div>
-        <nav>
-          {[
-            [LayoutDashboard, 'Overview'],
-            [BarChart3, 'Holdings'],
-            [Clock, 'Transactions'],
-          ].map(([Icon, label]: any) => (
-            <a
-              className={
-                'dashboard-nav-link ' + (view === label ? 'nav-active' : '')
-              }
-              aria-current={view === label ? 'page' : undefined}
-              href={paths[label]}
-              key={label}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                navigate(label);
-              }}
-            >
-              <Icon size={16} />
-              {label}
-            </a>
-          ))}
-        </nav>
-
-        {/* Group 2: Decision & Action */}
-        <div className="nav-label" style={{ marginTop: '18px' }}>
-          DECISION & ACTION
-        </div>
-        <nav>
-          {[
-            [Sparkles, 'Recommendations', 'Today’s decisions'],
-            [Wallet, 'Deploy cash'],
-          ].map(([Icon, label, display]: any) => (
-            <a
-              className={
-                'dashboard-nav-link ' + (view === label ? 'nav-active' : '')
-              }
-              aria-current={view === label ? 'page' : undefined}
-              href={paths[label]}
-              key={label}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                navigate(label);
-              }}
-            >
-              <Icon size={16} />
-              {display || label}
-            </a>
-          ))}
-        </nav>
-
-        {/* Group 3: Research Lab */}
-        <div className="nav-label" style={{ marginTop: '18px' }}>
-          RESEARCH LAB
-        </div>
-        <nav>
-          {[
-            [Activity, 'AI reviews'],
-            [BookOpen, 'Annual reports'],
-          ].map(([Icon, label]: any) => (
-            <a
-              className={
-                'dashboard-nav-link ' + (view === label ? 'nav-active' : '')
-              }
-              aria-current={view === label ? 'page' : undefined}
-              href={paths[label]}
-              key={label}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                navigate(label);
-              }}
-            >
-              <Icon size={16} />
-              {label}
-            </a>
-          ))}
-        </nav>
-
-        {/* Portfolio quick filter */}
-        <div className="nav-label portfolio-label">
-          PORTFOLIOS <span>{data ? portfolios.length : '—'}</span>
-        </div>
-        <button
-          className={
-            'portfolio-nav ' + (portfolio === 'All portfolios' ? 'active' : '')
-          }
-          onClick={() => selectPortfolio('All portfolios')}
-        >
-          <span className="portfolio-dot all" />
-          All portfolios
-          <span className="chevron">
-            {portfolio === 'All portfolios' && <Check size={13} />}
-          </span>
-        </button>
-        {portfolios.map((p: any, i: number) => (
-          <button
-            key={p.name}
-            className={'portfolio-nav ' + (portfolio === p.name ? 'active' : '')}
-            onClick={() => selectPortfolio(p.name)}
-          >
-            <span className={'portfolio-dot dot-' + (i % 7)} />
-            {p.name}
-            <span className="chevron">{p.holdings.length}</span>
-          </button>
-        ))}
-
-        <div className="sidebar-bottom">
-          <button
-            onClick={() => navigate('Framework')}
-            className={view === 'Framework' ? 'active' : ''}
-          >
-            <ShieldCheck size={16} />
-            Investment framework
-          </button>
-          <button
-            onClick={() => navigate('Settings')}
-            className={view === 'Settings' ? 'active' : ''}
-          >
-            <Settings size={16} />
-            Desk settings
-          </button>
-          <div className="source-pill">
-            <div>
-              <span className="status-dot" />
-              {data ? 'Portfolio connected' : 'Connecting on demand'}
+        <nav className="flex-1 px-2 py-3">
+          {NAV.map(({ group, items }) => (
+            <div key={group} className="mb-4">
+              <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{group}</div>
+              {items.map(([Icon, label, short]) => (
+                <a
+                  key={label}
+                  {...link(label, () => navigate(label))}
+                  aria-current={view === label ? 'page' : undefined}
+                  className={cn(
+                    'flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-hover hover:text-foreground',
+                    view === label && 'bg-brand-soft font-medium text-brand hover:bg-brand-soft hover:text-brand',
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="flex-1 truncate">{short || label}</span>
+                  {label === 'Recommendations' && decisions > 0 && (
+                    <span className="rounded-sm bg-warn-soft px-1.5 font-mono text-[10px] font-semibold text-warn">{decisions}</span>
+                  )}
+                </a>
+              ))}
             </div>
-            <small>Read-only institutional ledger</small>
+          ))}
+          <div className="mb-4">
+            <div className="flex items-center justify-between px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Portfolios <span className="font-mono">{data ? portfolios.length : '—'}</span>
+            </div>
+            {[{ name: 'All portfolios', holdings: data?.holdings || [] }, ...portfolios].map((p: any) => (
+              <button
+                key={p.name}
+                onClick={() => selectPortfolio(p.name)}
+                className={cn(
+                  'flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground hover:bg-hover hover:text-foreground',
+                  portfolio === p.name && 'text-foreground',
+                )}
+              >
+                <span className={cn('size-1.5 rounded-full', portfolio === p.name ? 'bg-brand' : 'bg-line-strong')} />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="font-mono text-[11px]">{p.holdings?.length ?? ''}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+        <div className="border-t border-line p-2">
+          <a
+            {...link('Settings', () => navigate('Settings'))}
+            className={cn(
+              'flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-hover hover:text-foreground',
+              view === 'Settings' && 'bg-brand-soft text-brand',
+            )}
+          >
+            <Settings className="size-4" /> Settings
+          </a>
+          <div className="mt-1 flex items-center gap-2 px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
+            <span className={cn('size-1.5 rounded-full', data ? 'bg-gain' : 'bg-line-strong')} />
+            {data ? `Ledger synced ${date(data.asOf)}` : 'Ledger on demand'}
           </div>
         </div>
       </aside>
 
-      <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <span>Workspace</span>
-            <ChevronRight size={13} />
-            <strong>{view}</strong>
-          </div>
-          <div className="top-actions">
-            <AppClock />
-            <ThemeSelector />
-            <span className="private">
-              <LockKeyhole size={11} /> Private
-            </span>
-          </div>
-        </header>
-
-        <main>
-          {needsPortfolio && (
-            <div className="market-strip">
-              {(
-                data?.indices || [
-                  { ticker: '^NSEI' },
-                  { ticker: '^BSESN' },
-                  { ticker: '^GSPC' },
-                ]
-              ).map((q: any) => {
-                const change =
-                  q.price && q.previous ? (q.price / q.previous - 1) * 100 : null;
-                return (
-                  <div key={q.ticker}>
-                    <small>
-                      {
-                        {
-                          '^NSEI': 'NIFTY 50',
-                          '^BSESN': 'SENSEX',
-                          '^GSPC': 'S&P 500',
-                        }[q.ticker as string] || q.ticker
-                      }
-                    </small>
-                    <strong>
-                      {q.price?.toLocaleString('en-IN', {
-                        maximumFractionDigits: 2,
-                      }) || '—'}
-                    </strong>
-                    <span className={(change || 0) >= 0 ? 'positive' : 'negative'}>
-                      {percent(change)}
-                    </span>
-                    <span className="market-time">
-                      {q.stale ? 'Stale · ' : ''}
-                      {date(q.time)}
-                    </span>
-                  </div>
-                );
-              })}
-              <div>
-                <small>USD / INR</small>
-                <strong>{data?.fx?.toFixed(4) || '—'}</strong>
-                <span className="market-time">{date(data?.fxTime)}</span>
-              </div>
-              <div className="market-note">
-                <Activity size={14} />
-                <span>
-                  Market quotes<small>Delayed market feeds</small>
+      <div className="min-w-0">
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-line bg-background/90 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:px-4">
+          <a {...link('Overview', () => navigate('Overview'))} className="grid size-6 shrink-0 place-items-center rounded-[5px] bg-brand font-mono text-[13px] font-bold text-primary-foreground lg:hidden">
+            अ
+          </a>
+          <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-4 overflow-x-auto font-mono text-[12px]">
+            {(data?.indices || []).map((q: any) => {
+              const change = q.price && q.previous ? (q.price / q.previous - 1) * 100 : null;
+              return (
+                <span key={q.ticker} className="flex shrink-0 items-baseline gap-1.5" title={`${q.stale ? 'Stale · ' : ''}${date(q.time)}`}>
+                  <span className="text-muted-foreground">{INDEX_NAMES[q.ticker] || q.ticker}</span>
+                  <span className="tabular-nums">{q.price?.toLocaleString('en-IN', { maximumFractionDigits: 2 }) || '—'}</span>
+                  <span className={cn('tabular-nums', (change || 0) >= 0 ? 'text-gain' : 'text-loss')}>{pct(change, { digits: 2 })}</span>
                 </span>
-              </div>
-            </div>
-          )}
-
-          <div className="page-heading">
-            <div>
-              <h1>{titles[view]}</h1>
-              <p>{subtitles[view]}</p>
-            </div>
-            <button
-              className="button"
-              disabled={snapshot.loading && needsPortfolio}
-              onClick={() => {
-                if (needsPortfolio) void snapshot.refresh();
-                invalidateResources(['/api/research/status']);
-              }}
-            >
-              <RefreshCw
-                size={14}
-                className={snapshot.loading && needsPortfolio ? 'spin' : ''}
-              />
-              {needsPortfolio ? 'Refresh data' : 'Refresh status'}
-            </button>
+              );
+            })}
+            {data?.fx && (
+              <span className="flex shrink-0 items-baseline gap-1.5" title={date(data.fxTime)}>
+                <span className="text-muted-foreground">USDINR</span>
+                <span className="tabular-nums">{data.fx.toFixed(2)}</span>
+              </span>
+            )}
           </div>
-
-          <ModuleBoundary name="AI review status">
-            <ResearchActivity onOpen={() => navigate('AI reviews')} />
-          </ModuleBoundary>
-
-          {needsPortfolio && snapshot.error && (
-            <div className="alert error" role="alert">
-              <AlertTriangle size={18} />
-              <div>
-                {snapshot.error}
-                {data && ' Showing previous portfolio snapshot.'}
-              </div>
-              <button
-                className="button"
-                style={{ marginLeft: 'auto' }}
-                onClick={snapshot.refresh}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {needsPortfolio && data?.warnings?.length > 0 && (
-            <details className="data-warnings">
-              <summary>
-                {data.warnings.length} data checks need attention
-              </summary>
-              <div style={{ marginTop: '8px', paddingLeft: '8px' }}>
-                {data.warnings.map((warning: string, i: number) => (
-                  <p key={i} style={{ margin: '4px 0' }}>
-                    {warning}
-                  </p>
-                ))}
-              </div>
-            </details>
-          )}
-
-          {/* Portfolio controls: active portfolio picker + sync status */}
-          {needsPortfolio && (
-            <div className="portfolio-controls">
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                }}
-              >
-                <label
-                  htmlFor="portfolio-select"
-                  style={{
-                    fontSize: 'var(--text-sm)',
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Portfolio:
-                </label>
+          <div className="flex shrink-0 items-center gap-2">
+            <ModuleBoundary name="AI review status">
+              <span className="hidden md:inline-flex">
+                <ResearchActivity pill onOpen={() => navigate('AI reviews')} />
+              </span>
+            </ModuleBoundary>
+            {needsPortfolio && (
+              <label className="relative inline-flex items-center">
+                <span className="sr-only">Portfolio</span>
                 <select
-                  id="portfolio-select"
-                  aria-label="Selected portfolio"
                   value={portfolio}
                   onChange={(e) => selectPortfolio(e.target.value)}
+                  className="h-7 max-w-40 appearance-none rounded-md border border-line bg-panel pr-7 pl-2 text-xs font-medium text-foreground outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option>All portfolios</option>
                   {portfolios.map((p: any) => (
                     <option key={p.name}>{p.name}</option>
                   ))}
                 </select>
-              </div>
-              <span className="sync-time">
-                {data ? `Synced ${date(data.asOf)}` : 'Connecting to NocoDB…'}
+                <ChevronDown className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
+              </label>
+            )}
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="hidden h-7 items-center gap-2 rounded-md border border-line bg-panel px-2 text-xs text-muted-foreground hover:bg-hover hover:text-foreground sm:inline-flex"
+              aria-label="Search stocks and pages"
+            >
+              <Search className="size-3.5" />
+              <span className="hidden xl:inline">Search</span>
+              <kbd className="rounded-sm border border-line px-1 font-mono text-[10px]">Ctrl K</kbd>
+            </button>
+            <button
+              onClick={refresh}
+              disabled={snapshot.loading && needsPortfolio}
+              className="grid size-7 place-items-center rounded-md border border-line bg-panel text-muted-foreground hover:bg-hover hover:text-foreground disabled:opacity-50"
+              aria-label={needsPortfolio ? 'Refresh data' : 'Refresh status'}
+              title={needsPortfolio ? 'Refresh data' : 'Refresh status'}
+            >
+              <RefreshCw className={cn('size-3.5', snapshot.loading && needsPortfolio && 'animate-spin')} />
+            </button>
+            <span className="hidden font-mono text-[11px] text-muted-foreground 2xl:inline">
+              <AppClock />
+            </span>
+            <span className="hidden sm:inline-flex">
+              <ThemeSelector />
+            </span>
+          </div>
+        </header>
+
+        <main className="mx-auto w-full max-w-[1600px] px-3 pt-4 pb-24 sm:px-4 lg:px-6 lg:pb-10">
+          <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-lg font-semibold tracking-tight">{titles[view]}</h1>
+            <p className="text-xs text-muted-foreground">{subtitles[view]}</p>
+            {needsPortfolio && portfolio !== 'All portfolios' && (
+              <span className="rounded-sm border border-brand/40 bg-brand-soft px-1.5 font-mono text-[11px] text-brand">{portfolio}</span>
+            )}
+          </div>
+
+          {needsPortfolio && snapshot.error && (
+            <div role="alert" className="mb-3 flex items-center gap-3 rounded-md border border-loss/40 bg-loss-soft px-3 py-2 text-sm text-loss">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span className="flex-1">
+                {snapshot.error}
+                {data && ' Showing the previous portfolio snapshot.'}
               </span>
+              <button onClick={snapshot.refresh} className="rounded-md border border-loss/40 px-2 py-0.5 text-xs font-medium hover:bg-loss/10">
+                Retry
+              </button>
             </div>
           )}
-
-          {/* Render the 4 KPI stat cards ONLY on Overview to keep other pages focused */}
-          {needsPortfolio && view === 'Overview' && (
-            <div className="stats-grid">
-              <div className="stat-card">
-                <small>
-                  Total portfolio value <Wallet size={14} />
-                </small>
-                <strong>{compact(totals?.value)}</strong>
-                <span>
-                  {totals?.unpriced
-                    ? 'Partial valuation · missing prices'
-                    : 'Equities + recorded cash'}
-                </span>
-              </div>
-              <div className="stat-card">
-                <small>
-                  Unrealised return <TrendingUp size={14} />
-                </small>
-                <strong
-                  className={
-                    totals?.equity - totals?.invested >= 0
-                      ? 'positive'
-                      : 'negative'
-                  }
-                >
-                  {compact(
-                    totals && !totals.unpriced
-                      ? totals.equity - totals.invested
-                      : null
-                  )}
-                </strong>
-                <span>
-                  FIFO · current FX ·{' '}
-                  {totals?.invested && !totals?.unpriced
-                    ? percent((totals.equity / totals.invested - 1) * 100)
-                    : '—'}
-                </span>
-              </div>
-              <div className="stat-card">
-                <small>
-                  Available cash <Wallet size={14} />
-                </small>
-                <strong>{compact(totals?.cash)}</strong>
-                <button
-                  className="text-link"
-                  onClick={() => navigate('Deploy cash')}
-                  style={{ color: 'var(--accent)', fontWeight: 600 }}
-                >
-                  Deploy cash <ArrowRight size={13} />
-                </button>
-              </div>
-              <div className="stat-card">
-                <small>
-                  Decisions waiting <Sparkles size={14} />
-                </small>
-                <strong>{data ? priorities.length : '—'}</strong>
-                <span>Trims, exit and profit reviews</span>
-              </div>
-            </div>
+          {needsPortfolio && data?.warnings?.length > 0 && (
+            <details className="mb-3 rounded-md border border-warn/40 bg-warn-soft px-3 py-2 text-sm text-warn">
+              <summary className="cursor-pointer font-medium">{data.warnings.length} data checks need attention</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                {data.warnings.map((w: string, i: number) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {needsPortfolio && !data ? (
-            <section
-              className="loading-state"
-              role="status"
-              style={{ padding: '60px 20px', textAlign: 'center' }}
-            >
-              <RefreshCw
-                size={28}
-                className="spin"
-                style={{ margin: '0 auto 16px', color: 'var(--accent)' }}
-              />
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>
-                Connecting to portfolio ledger
-              </h2>
-              <p style={{ color: 'var(--muted)', fontSize: 'var(--text-sm)' }}>
-                Research status and navigation remain available while data loads.
-              </p>
+            <section role="status" className="grid place-items-center rounded-md border border-line bg-panel px-4 py-16 text-center">
+              <RefreshCw className="mb-3 size-6 animate-spin text-brand" />
+              <h2 className="text-sm font-semibold">Connecting to the portfolio ledger</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Navigation and research status stay available while data loads.</p>
             </section>
           ) : (
             <ModuleBoundary key={view} name={view}>
               <Suspense fallback={<ModuleLoading />}>
-                <View
-                  data={data}
-                  portfolio={portfolio}
-                  navigate={navigate}
-                  setSelected={setSelected}
-                  showExecution={showExecution}
-                />
+                <div>
+                  <View data={data} portfolio={portfolio} navigate={navigate} setSelected={setSelected} showExecution={showExecution} />
+                </div>
               </Suspense>
             </ModuleBoundary>
           )}
-
-          <footer
-            style={{
-              borderTop: '1px solid var(--line)',
-              marginTop: '40px',
-              paddingTop: '20px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--muted)',
-            }}
-          >
-            <span>Arthapalana · Institutional-Grade Portfolio Intelligence</span>
-            <span>NocoDB ledger · Yahoo Finance feeds · Jarvis framework</span>
-          </footer>
         </main>
       </div>
 
-      <nav className="mobile-tabs" aria-label="Primary">
-        {([
-          [LayoutDashboard, 'Overview'],
-          [Sparkles, 'Recommendations', 'Decide'],
-          [BarChart3, 'Holdings'],
-          [Wallet, 'Deploy cash', 'Cash'],
-          [Settings, 'Settings'],
-        ] as any[]).map(([Icon, label, short]) => (
+      {/* Mobile: bottom tabs + More sheet */}
+      {moreOpen && <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setMoreOpen(false)} />}
+      {moreOpen && (
+        <nav aria-label="More pages" className="fixed inset-x-2 bottom-[calc(60px+env(safe-area-inset-bottom))] z-50 grid gap-0.5 rounded-lg border border-line bg-panel p-1.5 shadow-2xl lg:hidden">
+          {(
+            [
+              [Clock, 'Transactions'],
+              [Activity, 'AI reviews'],
+              [BookOpen, 'Annual reports'],
+              [ShieldCheck, 'Framework'],
+              [Settings, 'Settings'],
+            ] as any[]
+          ).map(([Icon, label]) => (
+            <a
+              key={label}
+              {...link(label, () => navigate(label))}
+              aria-current={view === label ? 'page' : undefined}
+              className={cn('flex items-center gap-3 rounded-md px-3 py-3 text-[15px]', view === label ? 'bg-brand-soft font-medium text-brand' : 'text-foreground')}
+            >
+              <Icon className="size-[18px]" />
+              {label}
+            </a>
+          ))}
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-muted-foreground">Theme</span>
+            <ThemeSelector />
+          </div>
+        </nav>
+      )}
+      <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-line bg-panel/95 px-1 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+        {(
+          [
+            [LayoutDashboard, 'Overview'],
+            [Sparkles, 'Recommendations', 'Decide'],
+            [BarChart3, 'Holdings'],
+            [Wallet, 'Deploy cash', 'Cash'],
+          ] as any[]
+        ).map(([Icon, label, short]) => (
           <a
             key={label}
-            href={paths[label]}
-            className={view === label ? 'active' : ''}
+            {...link(label, () => navigate(label))}
             aria-current={view === label ? 'page' : undefined}
-            onClick={(e) => {
-              if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              navigate(label);
-            }}
+            className={cn('relative grid justify-items-center gap-0.5 py-1 text-[11px]', view === label && !moreOpen ? 'font-semibold text-brand' : 'text-muted-foreground')}
           >
-            <Icon size={18} />
-            <span>{short || label}</span>
+            <Icon className="size-[18px]" />
+            {short || label}
+            {label === 'Recommendations' && decisions > 0 && (
+              <span className="absolute top-0 right-[calc(50%-18px)] rounded-sm bg-warn px-1 font-mono text-[9px] font-bold text-background">{decisions}</span>
+            )}
           </a>
         ))}
+        <button
+          type="button"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((o) => !o)}
+          className={cn(
+            'grid justify-items-center gap-0.5 py-1 text-[11px]',
+            moreOpen || ['Transactions', 'AI reviews', 'Annual reports', 'Framework', 'Settings'].includes(view) ? 'font-semibold text-brand' : 'text-muted-foreground',
+          )}
+        >
+          <MoreHorizontal className="size-[18px]" />
+          More
+        </button>
       </nav>
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        holdings={data?.holdings || []}
+        onNavigate={(v) => navigate(v)}
+        onSelectHolding={(h) => setSelected(h)}
+      />
 
       {selected && (
         <ModuleBoundary name="Holding details">
           <Suspense fallback={<ModuleLoading />}>
-            <Drawer
-              selected={selected}
-              setSelected={setSelected}
-              showExecution={showExecution}
-            />
+            <Drawer selected={selected} setSelected={setSelected} showExecution={showExecution} />
           </Suspense>
         </ModuleBoundary>
       )}
-
       {executionTarget && (
         <ModuleBoundary name="Price plan">
           <Suspense fallback={<ModuleLoading />}>
-            <Execution
-              target={executionTarget}
-              onClose={() => setExecutionTarget(null)}
-            />
+            <div>
+              <Execution target={executionTarget} onClose={() => setExecutionTarget(null)} />
+            </div>
           </Suspense>
         </ModuleBoundary>
       )}

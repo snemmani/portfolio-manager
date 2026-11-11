@@ -16,6 +16,7 @@ const req=q=>new Request('https://test.site/api/execution?'+q);
 let r=await executionHandler(req('ticker=MADEUP&portfolio=India'),env);assert.equal(r.status,404);
 r=await executionHandler(req('ticker=AAA.NS&portfolio=India'),env);let d=await r.json();assert.equal(r.status,200);assert.equal(d.plan.side,'sell');assert.equal(d.plan.quantity,9);assert.equal(d.plan.canDraft,true);assert.equal(d.plan.limit,100);
 r=await executionHandler(req('ticker=AAA.NS&portfolio=India&intent=exit'),env);d=await r.json();assert.equal(d.plan.manualExit,true);assert.equal(d.plan.quantity,10);assert.equal(d.plan.canDraft,true);
-r=await executionHandler(req('ticker=ORCL&portfolio=ESPP&intent=exit'),env);d=await r.json();assert.equal(d.plan.canDraft,false);assert.match(d.plan.status,/Locked/);
+// A portfolio holding only a locked plan is hidden, so no plan can be drafted for it at all.
+r=await executionHandler(req('ticker=ORCL&portfolio=ESPP&intent=exit'),env);assert.equal(r.status,404);
 r=await executionHandler(req('ticker=AAA.NS&portfolio=Wrong&intent=exit'),env);assert.equal(r.status,404);
 assert.equal(paidCalls,0);console.log('PASS: whitelisted tickers, current-price trim sizing, full-exit user scenario, ORCL lock, portfolio separation and zero paid API calls.');

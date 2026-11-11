@@ -292,6 +292,8 @@ export interface ScreenInput{
 }
 export interface Scorecard{
  policy:typeof GATE_POLICY;
+ /** Raw annual statement figures (statement currency, absolute units), newest first, for report cross-checks. */
+ statements?:{currency:string;rows:{period:string;revenue:number|null;netIncome:number|null;operatingCashFlow:number|null;freeCashFlow:number|null}[]};
  gates:Gate[];warnings:GateWarning[];warningCount:number;
  status:'eligible'|'watchlist'|'rejected';
  blocking:Gate[];
@@ -417,7 +419,8 @@ export function screenScorecard(input:ScreenInput):Scorecard{
  const raw=intrinsicValue(m,input.market,input.financial);
  let intrinsic:Intrinsic|null=raw&&converted?{...raw,value:round(raw.value*rate),method:raw.method+` (statements converted from ${input.financialCurrency} at ${round(rate,4)})`}:raw;
  if(intrinsic&&input.financial&&!(finite(m.roeMedian)&&m.roeMedian>=THRESHOLDS.roeMinFinancial))intrinsic={...intrinsic,binding:false,note:'Reported equity appears to include insurance or other subsidiaries, so this value is indicative only and does not cap the buy price.'};
- return finishScorecard(gates,warnings,m,intrinsic?{...intrinsic,currency:expected}:null,severe,reverseDcf(m,input.market,input.financial,finite(input.price)?input.price/rate:null));
+ const statements={currency:mislabelled||!input.financialCurrency?expected:input.financialCurrency,rows:normaliseSeries(input.series).slice(0,3).map(r=>({period:String(r.period).slice(0,10),revenue:field(r,'TotalRevenue'),netIncome:field(r,'NetIncome'),operatingCashFlow:field(r,'OperatingCashFlow'),freeCashFlow:field(r,'FreeCashFlow')}))};
+ return {...finishScorecard(gates,warnings,m,intrinsic?{...intrinsic,currency:expected}:null,severe,reverseDcf(m,input.market,input.financial,finite(input.price)?input.price/rate:null)),statements};
 }
 
 function finishScorecard(gates:Gate[],warnings:GateWarning[],m:MultiYear,intrinsic:Intrinsic|null,severe:string[],reverse:ReverseDcf):Scorecard{
@@ -433,7 +436,7 @@ function finishScorecard(gates:Gate[],warnings:GateWarning[],m:MultiYear,intrins
 /** Compact scorecard stored on candidates and holdings (no raw statements). */
 export function compactScorecard(sc:Scorecard){
  const m=sc.metrics;
- return {policy:sc.policy,status:sc.status,summary:sc.summary,warningCount:sc.warningCount,severe:sc.severe,gates:sc.gates,warnings:sc.warnings,intrinsic:sc.intrinsic,reverseDcf:sc.reverseDcf,
+ return {policy:sc.policy,status:sc.status,summary:sc.summary,statements:sc.statements,warningCount:sc.warningCount,severe:sc.severe,gates:sc.gates,warnings:sc.warnings,intrinsic:sc.intrinsic,reverseDcf:sc.reverseDcf,
   metrics:{years:m.years,latestPeriod:m.latestPeriod,revenueCagr:m.revenueCagr,earningsCagr:m.earningsCagr,cagrYears:m.cagrYears,roceMedian:m.roceMedian,roceYears:m.roceYears,roeMedian:m.roeMedian,roeYears:m.roeYears,roaMedian:m.roaMedian,cashConversionCumulative:m.cashConversionCumulative,debtEquity:m.debtEquity,interestCoverage:m.interestCoverage,altmanZ:m.altmanZ,beneishM:m.beneishM,revenueGrowthLatest:m.revenueGrowthLatest,earningsGrowthLatest:m.earningsGrowthLatest}};
 }
 /** Per-company gate summary used by the research gate (holdings take precedence over candidates). */

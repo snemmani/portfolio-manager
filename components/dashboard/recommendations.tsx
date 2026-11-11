@@ -1,282 +1,226 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import {
-  TrendingUp,
-  ArrowRight,
-  FileText,
-  Sparkles,
-} from 'lucide-react';
-import { money, date, badge, Markdown } from './shared';
-import { GateChips, ValueTag } from './scorecard';
+import { useState, useMemo, useEffect } from 'react';
+import { TrendingUp, ArrowRight, FileText, Sparkles, ChevronRight } from 'lucide-react';
+import { date, Markdown } from './shared';
 import { useHoldings, useDiscovery, useAnalysis } from './view-data';
 import type { ViewProps } from './types';
 import { mergeRecommendations } from '../../lib/merge-recommendations';
-import {
-  actionPriority,
-  actionLabel,
-  priorityOrderLabel,
-} from '../../lib/recommendation-order';
+import { actionLabel, priorityOrderLabel } from '../../lib/recommendation-order';
 import { supportLabel } from '../../lib/card-copy';
 import FundamentalResearch from '../fundamental-research';
 import RecommendationCopy from '../recommendation-copy';
 import InlineTradePlan from '../inline-trade-plan';
+import { Panel, SignalBadge, GateGlyphs, ValuePct, Segmented, Empty } from '../terminal/ui';
+import { px, symbol } from '../terminal/format';
 
-export default function RecommendationsView({
-  data,
-  portfolio,
-  setSelected,
-  showExecution,
-}: ViewProps) {
+type Group = 'decide' | 'watch' | 'waiting' | 'quiet';
+const GROUP_TEXT: Record<Group, string> = {
+  decide: `${priorityOrderLabel}. Each decision shows the gates, the reason and the price plan.`,
+  watch: 'A mandatory check fails. No additions; confirm the reason for owning the company still holds.',
+  waiting: 'The financial gates pass. Adding still needs a current company review, a margin of safety and a sign of technical support.',
+  quiet: 'Nothing to do: holdings that pass their checks, and locked plans.',
+};
+
+export default function RecommendationsView({ data, portfolio, setSelected, showExecution }: ViewProps) {
   const holdings = useHoldings(data, portfolio);
-  const [filter, setFilter] = useState('All actions');
-  const [market] = useState('India');
-
   const analysisState = useAnalysis();
   const analysis = analysisState.data;
-
-  const discoveryState = useDiscovery(portfolio);
-  const discoveryData = discoveryState.data;
+  const discoveryData = useDiscovery(portfolio).data;
 
   const cards = useMemo(
     () =>
       mergeRecommendations(
         holdings,
-        (analysis?.report?.recommendations || []).filter(
-          (r: any) => portfolio === 'All portfolios' || r.portfolio === portfolio
-        ),
-        {
-          rulesBased: true,
-          fundamentalPolicy: 'investor-v1',
-          ...(discoveryData?.discovery || {}),
-        }
+        (analysis?.report?.recommendations || []).filter((r: any) => portfolio === 'All portfolios' || r.portfolio === portfolio),
+        { rulesBased: true, fundamentalPolicy: 'investor-v1', ...(discoveryData?.discovery || {}) },
       ),
-    [holdings, analysis, portfolio, discoveryData]
+    [holdings, analysis, portfolio, discoveryData],
   );
-
-  const recommendationActions = useMemo(
-    () =>
-      [...new Set(cards.map((r: any) => actionLabel(r.action)))].sort(
-        (a, b) => actionPriority(a) - actionPriority(b) || a.localeCompare(b)
-      ),
-    [cards]
-  );
-
-  const filteredCards = cards.filter(
-    (r: any) => filter === 'All actions' || actionLabel(r.action) === filter
-  );
-
-  // Inbox grouping: only decisions get full cards; everything else is a scannable table.
   const groups = useMemo(() => {
-    const decide: any[] = [], watch: any[] = [], waiting: any[] = [], quiet: any[] = [];
-    for (const c of filteredCards) {
+    const g: Record<Group, any[]> = { decide: [], watch: [], waiting: [], quiet: [] };
+    for (const c of cards) {
       const a = String(c.action || '').toLowerCase();
-      if (a === 'hold' || a === 'locked') quiet.push(c);
-      else if (a === 'watch') watch.push(c);
-      else if (a === 'review') waiting.push(c);
-      else decide.push(c);
+      g[a === 'hold' || a === 'locked' ? 'quiet' : a === 'watch' ? 'watch' : a === 'review' ? 'waiting' : 'decide'].push(c);
     }
-    return { decide, watch, waiting, quiet };
-  }, [filteredCards]);
-
-  const card = (card: any) => (
-          <article className="panel recommendation" key={card.id}>
-            <div className="rec-top">
-              <span className={'badge ' + badge(card.action)}>
-                {actionLabel(card.action)}
-              </span>
-              <GateChips scorecard={card.holding?.scorecard} compact />
-            </div>
-
-            <h2>
-              {card.ticker}
-              {card.price !== null && card.price !== undefined && (
-                <span>{money(card.price, card.currency)}</span>
-              )}
-            </h2>
-
-            <p className="rec-portfolio">
-              {card.portfolio} ·{' '}
-              {typeof card.weight === 'number'
-                ? card.weight.toFixed(1) + '% weight'
-                : 'Weight unavailable'}
-              {' · '}{supportLabel(card.confidence)}
-            </p>
-
-            <RecommendationCopy
-              reasons={card.reasons}
-              risks={card.risks}
-              action={card.copyAction}
-            />
-
-            {card.additionalReasons?.length > 0 && (
-              <details className="research-risks merged-assessment">
-                <summary>{card.additionalLabel}</summary>
-                {card.additionalReasons.map((reason: string, i: number) => (
-                  <p key={i}>{reason}</p>
-                ))}
-              </details>
-            )}
-
-            <InlineTradePlan
-              ticker={card.ticker}
-              portfolio={card.portfolio}
-              action={card.action}
-              revision={(analysis?.report?.updated_at || '') + data?.asOf}
-              referencePrice={card.price}
-              currency={card.currency}
-            />
-
-            <div className="rec-bottom">
-              <button
-                className="text-link"
-                onClick={() =>
-                  showExecution(card.ticker, card.portfolio, undefined, !card.nonDiscretionary)
-                }
-              >
-                Full price plan <TrendingUp size={12} />
-              </button>
-              <button className="text-link" onClick={() => setSelected(card.holding)}>
-                Checklist & details <ArrowRight size={13} />
-              </button>
-            </div>
-          </article>
-  );
-
-  const table = (rows: any[]) => (
-    <div className="table-wrap">
-      <table className="compact-table">
-        <thead>
-          <tr>
-            <th>Stock</th>
-            <th>Portfolio</th>
-            <th className="num">Weight</th>
-            <th>Jarvis gates</th>
-            <th>Price vs value</th>
-            <th>Next step</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((c: any) => (
-            <tr key={c.id} tabIndex={0} onClick={() => setSelected(c.holding)} onKeyDown={(e) => e.key === 'Enter' && setSelected(c.holding)}>
-              <td>
-                <strong>{c.ticker.replace(/\.NS$/, '')}</strong>
-                <span className={'badge mini ' + badge(c.action)}>{actionLabel(c.action)}</span>
-              </td>
-              <td className="muted">{c.portfolio}</td>
-              <td className="num">{typeof c.weight === 'number' ? c.weight.toFixed(1) + '%' : '—'}</td>
-              <td><GateChips scorecard={c.holding?.scorecard} compact /></td>
-              <td><ValueTag price={c.price} scorecard={c.holding?.scorecard} /></td>
-              <td className="next-step">{c.reasons?.[0] || '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+    return g;
+  }, [cards]);
+  const [group, setGroup] = useState<Group>('decide');
+  const [touched, setTouched] = useState(false);
+  // Open the first non-empty group until the user picks one.
+  useEffect(() => {
+    if (!touched) setGroup((['decide', 'watch', 'waiting', 'quiet'] as Group[]).find((k) => groups[k].length) || 'decide');
+  }, [groups, touched]);
+  const rows = groups[group];
+  const revision = (analysis?.report?.updated_at || '') + data?.asOf;
 
   return (
-    <>
-      <div className="inbox-summary">
-        <div className="inbox-counts">
-          <span className="count-pill count-decide"><strong>{groups.decide.length}</strong> to decide</span>
-          <span className="count-pill count-watch"><strong>{groups.watch.length}</strong> to watch</span>
-          <span className="count-pill"><strong>{groups.waiting.length}</strong> waiting for research or price</span>
-          <span className="count-pill"><strong>{groups.quiet.length}</strong> no action</span>
-        </div>
-        <select
-          aria-label="Filter recommendation action"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        >
-          <option>All actions</option>
-          {recommendationActions.map((a: string) => (
-            <option key={a}>{a}</option>
-          ))}
-        </select>
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          value={group}
+          onChange={(g) => {
+            setTouched(true);
+            setGroup(g);
+          }}
+          options={[
+            { value: 'decide', label: 'Decide', count: groups.decide.length },
+            { value: 'watch', label: 'Watch', count: groups.watch.length },
+            { value: 'waiting', label: 'Waiting', count: groups.waiting.length },
+            { value: 'quiet', label: 'No action', count: groups.quiet.length },
+          ]}
+        />
+        <p className="text-xs text-muted-foreground">{GROUP_TEXT[group]}</p>
       </div>
 
-      <section className="inbox-section">
-        <h2 className="section-heading">Decisions <span className="count">{groups.decide.length}</span></h2>
-        <p className="section-sub">{priorityOrderLabel}. Each card shows the Jarvis gates, the reason and the price plan.</p>
-        {groups.decide.length ? (
-          <div className="recommendation-grid">{groups.decide.map(card)}</div>
-        ) : (
-          <div className="empty-state">Nothing needs a decision right now: no concentration breach above 17%, no serious red flag and no over-extended profit trim.</div>
-        )}
-      </section>
-
-      {groups.watch.length > 0 && (
-        <section className="inbox-section">
-          <h2 className="section-heading">Watch <span className="count">{groups.watch.length}</span></h2>
-          <p className="section-sub">A mandatory check fails. No additions; check whether the reason for owning the company still holds.</p>
-          <div className="recommendation-grid">{groups.watch.map(card)}</div>
-        </section>
-      )}
-
-      {groups.waiting.length > 0 && (
-        <section className="inbox-section">
-          <h2 className="section-heading">Waiting for research or price <span className="count">{groups.waiting.length}</span></h2>
-          <p className="section-sub">The financial gates pass. Adding still needs a current company review, a margin of safety and a sign of technical support.</p>
-          {table(groups.waiting)}
-        </section>
-      )}
-
-      {groups.quiet.length > 0 && (
-        <details className="inbox-section quiet">
-          <summary className="section-heading">No action <span className="count">{groups.quiet.length}</span></summary>
-          {table(groups.quiet)}
-        </details>
-      )}
-
-      <div className="footnote">
-        Financial and portfolio rules determine trades. AI adds context; check the current event and price plan before ordering. No trades are placed here.
-      </div>
-
-      {/* 3. SECONDARY SUPPORTING EVIDENCE (Collapsible) */}
-      <div style={{ marginTop: '36px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <details className="panel">
-          <summary style={{ padding: '16px 20px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles size={16} /> Latest AI portfolio briefing
-          </summary>
-          <div style={{ padding: '0 20px 20px' }}>
-            {analysisState.error && (
-              <div className="alert error">
-                {analysisState.error}
-                <button onClick={analysisState.refresh}>Retry</button>
-              </div>
-            )}
-            {analysis?.report?.body ? (
-              <>
-                <p style={{ color: 'var(--muted)', fontSize: 'var(--text-sm)', margin: '12px 0' }}>
-                  Completed {date(analysis.report.updated_at)} · {analysis.report.model}
-                </p>
-                <div className="full-briefing">
-                  <Markdown text={analysis.report.body} />
+      {(group === 'decide' || group === 'watch') &&
+        (rows.length ? (
+          <div className="grid gap-3 2xl:grid-cols-2">
+            {rows.map((card: any) => (
+              <article key={card.id} className="rounded-md border border-line bg-panel">
+                <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2">
+                  <SignalBadge action={actionLabel(card.action)} />
+                  <button onClick={() => setSelected(card.holding)} className="font-mono text-sm font-semibold hover:text-brand">
+                    {symbol(card.ticker)}
+                  </button>
+                  <span className="text-xs text-muted-foreground">
+                    {card.portfolio} · {typeof card.weight === 'number' ? `${card.weight.toFixed(1)}% weight` : 'weight —'} · {supportLabel(card.confidence)}
+                  </span>
+                  <span className="ml-auto flex items-center gap-3">
+                    <GateGlyphs scorecard={card.holding?.scorecard} />
+                    <span className="font-mono text-sm tabular-nums">{px(card.price, card.currency)}</span>
+                  </span>
+                </header>
+                <div className="grid gap-3 p-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                  <div className="min-w-0">
+                    <RecommendationCopy reasons={card.reasons} risks={card.risks} action={card.copyAction} />
+                    {card.additionalReasons?.length > 0 && (
+                      <details className="mt-2 text-xs">
+                        <summary className="cursor-pointer text-muted-foreground">{card.additionalLabel}</summary>
+                        {card.additionalReasons.map((r: string, i: number) => (
+                          <p key={i} className="mt-1">{r}</p>
+                        ))}
+                      </details>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <InlineTradePlan ticker={card.ticker} portfolio={card.portfolio} action={card.action} revision={revision} referencePrice={card.price} currency={card.currency} />
+                  </div>
                 </div>
-              </>
-            ) : (
-              <p style={{ color: 'var(--muted)', fontSize: 'var(--text-sm)', margin: '12px 0' }}>
-                No completed portfolio research briefing is available yet. Current portfolio checks are shown above.
-              </p>
-            )}
+                <footer className="flex gap-4 border-t border-line px-3 py-2 text-xs">
+                  <button onClick={() => showExecution(card.ticker, card.portfolio, undefined, !card.nonDiscretionary)} className="inline-flex items-center gap-1 text-brand hover:underline">
+                    <TrendingUp className="size-3.5" /> Full price plan
+                  </button>
+                  <button onClick={() => setSelected(card.holding)} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                    Checklist & details <ArrowRight className="size-3.5" />
+                  </button>
+                </footer>
+              </article>
+            ))}
           </div>
-        </details>
+        ) : (
+          <Panel>
+            <Empty>
+              {group === 'decide'
+                ? 'Nothing needs a decision: no concentration above 17%, no serious red flag and no over-extended profit trim.'
+                : 'No holding is failing a mandatory check.'}
+            </Empty>
+          </Panel>
+        ))}
 
-        <details className="panel">
-          <summary style={{ padding: '16px 20px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={16} /> Company investment cases & valuation references
-          </summary>
-          <div style={{ padding: '0 20px 20px' }}>
-            <FundamentalResearch
-              discovery={discoveryData?.discovery}
-              holdings={data?.holdings || []}
-              portfolio={portfolio}
-              market={market}
-            />
-          </div>
-        </details>
-      </div>
-    </>
+      {(group === 'waiting' || group === 'quiet') && (
+        <Panel flush>
+          {rows.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-line bg-raised text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
+                    <th className="h-8 px-3 text-left font-semibold">Stock</th>
+                    <th className="hidden px-2 text-left font-semibold md:table-cell">Portfolio</th>
+                    <th className="px-2 text-right font-semibold">Weight</th>
+                    <th className="hidden px-2 text-left font-semibold sm:table-cell">Gates</th>
+                    <th className="hidden px-2 text-right font-semibold lg:table-cell">P / Value</th>
+                    <th className="px-3 text-left font-semibold">Next step</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((c: any) => (
+                    <tr
+                      key={c.id}
+                      tabIndex={0}
+                      onClick={() => setSelected(c.holding)}
+                      onKeyDown={(e) => e.key === 'Enter' && setSelected(c.holding)}
+                      className="h-9 cursor-pointer border-b border-line/70 last:border-0 hover:bg-hover"
+                    >
+                      <td className="px-3">
+                        <span className="flex items-center gap-2">
+                          <span className="font-mono font-semibold">{symbol(c.ticker)}</span>
+                          <SignalBadge action={actionLabel(c.action)} />
+                        </span>
+                      </td>
+                      <td className="hidden px-2 text-muted-foreground md:table-cell">{c.portfolio}</td>
+                      <td className="px-2 text-right font-mono tabular-nums">{typeof c.weight === 'number' ? `${c.weight.toFixed(1)}%` : '—'}</td>
+                      <td className="hidden px-2 sm:table-cell">
+                        <GateGlyphs scorecard={c.holding?.scorecard} />
+                      </td>
+                      <td className="hidden px-2 text-right lg:table-cell">
+                        <ValuePct price={c.price} scorecard={c.holding?.scorecard} />
+                      </td>
+                      <td className="max-w-[28rem] truncate px-3 text-xs text-muted-foreground" title={c.reasons?.[0]}>
+                        {c.reasons?.[0] || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty>Nothing here.</Empty>
+          )}
+        </Panel>
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        Financial and portfolio rules decide trades; AI adds context. Check the current event and price plan before ordering. No trades are placed here.
+      </p>
+
+      <details className="group rounded-md border border-line bg-panel">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
+          <Sparkles className="size-3.5" /> Latest AI portfolio briefing
+          {analysis?.report?.updated_at && <span className="ml-auto font-mono normal-case tracking-normal">{date(analysis.report.updated_at)}</span>}
+        </summary>
+        <div className="border-t border-line p-3">
+          {analysisState.error && (
+            <div className="mb-2 flex items-center gap-2 text-xs text-loss">
+              {analysisState.error}
+              <button onClick={analysisState.refresh} className="underline">
+                Retry
+              </button>
+            </div>
+          )}
+          {analysis?.report?.body ? (
+            <div>
+              <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+                Completed {date(analysis.report.updated_at)} · {analysis.report.model}
+              </p>
+              <Markdown text={analysis.report.body} />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No completed portfolio briefing yet. Current portfolio checks are shown above.</p>
+          )}
+        </div>
+      </details>
+
+      <details className="group rounded-md border border-line bg-panel">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
+          <FileText className="size-3.5" /> Company investment cases & valuation references
+        </summary>
+        <div className="border-t border-line p-3">
+          <FundamentalResearch discovery={discoveryData?.discovery} holdings={data?.holdings || []} portfolio={portfolio} market="India" />
+        </div>
+      </details>
+    </div>
   );
 }

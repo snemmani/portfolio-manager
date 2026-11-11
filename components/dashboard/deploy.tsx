@@ -1,15 +1,10 @@
 'use client';
 
-import { GateChips, ValueTag, ImpliedGrowth } from './scorecard';
-import { useState, useMemo, useEffect } from 'react';
-import {
-  Wallet,
-  Search,
-  ExternalLink,
-  AlertTriangle,
-  TrendingUp,
-} from 'lucide-react';
-import { money, percent, date } from './shared';
+import { Fragment, useState, useMemo, useEffect } from 'react';
+import { Search, ExternalLink, AlertTriangle, TrendingUp, ChevronRight, ArrowDown, ArrowUp } from 'lucide-react';
+import { ImpliedGrowth } from './scorecard';
+import { ReportEvidence } from '../report-evidence';
+import { date } from './shared';
 import { useDiscovery } from './view-data';
 import type { ViewProps } from './types';
 import InvestmentDecision from '../investment-decision';
@@ -22,39 +17,45 @@ import { planDiscovery } from '../../lib/discovery';
 import { candidateReview, discoveryCoverage } from '../../lib/discovery-review';
 import QueueResearchButton from '../research/queue-button';
 import { discoveryPriority } from '../../lib/recommendation-order';
+import { Panel, GateGlyphs, ValuePct, Segmented, Empty } from '../terminal/ui';
+import { inr, px, pct, symbol } from '../terminal/format';
+import { cn } from '@/lib/utils';
 
-export default function DeployView({
-  data,
-  portfolio,
-  showExecution,
-}: ViewProps) {
+type Status = 'eligible' | 'watchlist' | 'rejected';
+type SortKey = 'priority' | 'value' | 'roce' | 'growth' | 'implied' | 'ticker';
+const PAGE = 50;
+
+const field = 'h-8 rounded-md border border-line bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const label = 'grid gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground';
+
+export default function DeployView({ data, portfolio, showExecution }: ViewProps) {
   const [budget, setBudget] = useState('');
   const [market, setMarket] = useState('India');
-  const [shownCandidates, setShownCandidates] = useState<Record<string, number>>({
-    eligible: 12,
-    watchlist: 12,
-    rejected: 12,
-  });
+  const [status, setStatus] = useState<Status>('eligible');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'priority', desc: false });
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<string | null>(null);
   const [shownBlockers, setShownBlockers] = useState(30);
 
   const discoveryState = useDiscovery(portfolio);
   const discoveryData = discoveryState.data;
-  const discoveryError = discoveryState.error;
-
+  const discovery = discoveryData?.discovery;
   const portfolios = data?.portfolios || [];
   const p = portfolios.find((x: any) => x.name === portfolio);
 
   useEffect(() => {
-    setShownCandidates({ eligible: 12, watchlist: 12, rejected: 12 });
+    setShown(PAGE);
     setShownBlockers(30);
     setBudget('');
+    setOpen(null);
   }, [market, portfolio]);
+  useEffect(() => {
+    setShown(PAGE);
+    setOpen(null);
+  }, [status, search, sort]);
 
-  const setPortfolio = (name: string) => {
-    window.dispatchEvent(
-      new CustomEvent('arthapalana-portfolio', { detail: name })
-    );
-  };
+  const setPortfolio = (name: string) => window.dispatchEvent(new CustomEvent('arthapalana-portfolio', { detail: name }));
 
   const plan: any = useMemo(
     () =>
@@ -65,17 +66,17 @@ export default function DeployView({
             budget === '' ? Math.max(0, p.cash) : Number(budget),
             market,
             {
-              ...(discoveryData?.discovery || {}),
+              ...(discovery || {}),
               rulesBased: true,
               fundamentalPolicy: 'investor-v1',
               combinedTotal: data?.totals?.value,
               holdingRecommendations: discoveryData?.holdingRecommendations || [],
               reportAsOf: discoveryData?.reportAsOf,
             },
-            discoveryData?.ideas || []
+            discoveryData?.ideas || [],
           )
         : null,
-    [p, data, budget, market, discoveryData]
+    [p, data, budget, market, discoveryData, discovery],
   );
 
   const allocationBlocks = useMemo(
@@ -83,76 +84,70 @@ export default function DeployView({
       plan && p
         ? allocationExplanations(
             p,
-            (data?.holdings || []).filter(
-              (h: any) => h.currency === (market === 'India' ? 'INR' : 'USD')
-            ),
+            (data?.holdings || []).filter((h: any) => h.currency === (market === 'India' ? 'INR' : 'USD')),
             market,
-            discoveryData?.discovery
-              ? {
-                  ...discoveryData.discovery,
-                  candidates: discoveryData.discovery.candidates.filter(
-                    (c: any) => c.market === (market === 'India' ? 'IN' : 'US')
-                  ),
-                }
-              : null,
+            discovery ? { ...discovery, candidates: discovery.candidates.filter((c: any) => c.market === (market === 'India' ? 'IN' : 'US')) } : null,
             discoveryData?.ideas || [],
-            plan
-          ).sort(
-            (a: any, b: any) =>
-              a.kind.localeCompare(b.kind) || a.ticker.localeCompare(b.ticker)
-          )
+            plan,
+          ).sort((a: any, b: any) => a.kind.localeCompare(b.kind) || a.ticker.localeCompare(b.ticker))
         : [],
-    [plan, p, data, market, discoveryData]
+    [plan, p, data, market, discoveryData, discovery],
   );
 
-  const discoveryCandidates = useMemo(
+  const ideaFor = (ticker: string) => (discoveryData?.ideas || []).find((i: any) => i.ticker === ticker && i.portfolio === portfolio);
+  const candidates = useMemo(
     () =>
-      (discoveryData?.discovery?.candidates || [])
+      (discovery?.candidates || [])
         .filter((c: any) => c.market === (market === 'India' ? 'IN' : 'US'))
-        .sort((a: any, b: any) => {
-          const rank = (c: any) =>
-            discoveryPriority(
-              c,
-              (discoveryData?.ideas || []).find(
-                (i: any) => i.ticker === c.ticker && i.portfolio === portfolio
-              )?.decision
-            );
-          return rank(a) - rank(b) || a.ticker.localeCompare(b.ticker);
-        }),
-    [discoveryData, market, portfolio]
+        .map((c: any) => ({
+          ...c,
+          _rank: discoveryPriority(c, (discoveryData?.ideas || []).find((i: any) => i.ticker === c.ticker && i.portfolio === portfolio)?.decision),
+          _value: c.scorecard?.intrinsic?.value ? c.price / c.scorecard.intrinsic.value : null,
+          _roce: c.sector === 'Financials' ? (c.scorecard?.metrics?.roeMedian ?? c.metrics?.roe) : (c.scorecard?.metrics?.roceMedian ?? c.metrics?.roce),
+          _growth: c.scorecard?.metrics?.revenueCagr ?? c.metrics?.revenue_growth_yoy,
+          _implied: c.scorecard?.reverseDcf?.impliedGrowthPct,
+        })),
+    [discovery, discoveryData, market, portfolio],
   );
+  const counts = useMemo(() => {
+    const n: Record<Status, number> = { eligible: 0, watchlist: 0, rejected: 0 };
+    for (const c of candidates) n[c.status as Status] = (n[c.status as Status] || 0) + 1;
+    return n;
+  }, [candidates]);
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = candidates.filter((c: any) => c.status === status && (!q || `${c.ticker} ${c.name} ${c.sector}`.toLowerCase().includes(q)));
+    const val = (c: any) => ({ priority: c._rank, value: c._value, roce: c._roce, growth: c._growth, implied: c._implied, ticker: c.ticker })[sort.key];
+    return list.sort((a: any, b: any) => {
+      const x = val(a), y = val(b);
+      if (x == null && y == null) return a.ticker.localeCompare(b.ticker);
+      if (x == null) return 1;
+      if (y == null) return -1;
+      const d = typeof x === 'string' ? x.localeCompare(y) : x - y;
+      return (sort.desc ? -d : d) || a.ticker.localeCompare(b.ticker);
+    });
+  }, [candidates, status, search, sort]);
 
-  const ideaFor = (ticker: string) =>
-    (discoveryData?.ideas || []).find(
-      (i: any) => i.ticker === ticker && i.portfolio === portfolio
-    );
-
-  const buyCoverage = discoveryCoverage(
-    discoveryCandidates,
-    portfolio,
-    discoveryData?.ideas || [],
-    plan?.allocations || []
+  const buyCoverage = discoveryCoverage(candidates, portfolio, discoveryData?.ideas || [], plan?.allocations || []);
+  const entryWatchCount = candidates.filter((c: any) => ideaFor(c.ticker)?.fundamentalStatus === 'valuation').length;
+  const head = (key: SortKey, text: string, cls = '') => (
+    <th className={cn('px-2 font-semibold', cls)}>
+      <button
+        onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key !== 'value' && key !== 'implied' && key !== 'ticker' }))}
+        className={cn('inline-flex items-center gap-1 uppercase hover:text-foreground', sort.key === key && 'text-foreground')}
+      >
+        {text}
+        {sort.key === key && (sort.desc ? <ArrowDown className="size-3 text-brand" /> : <ArrowUp className="size-3 text-brand" />)}
+      </button>
+    </th>
   );
-
-  const entryWatchCount = discoveryCandidates.filter(
-    (c: any) => ideaFor(c.ticker)?.fundamentalStatus === 'valuation'
-  ).length;
 
   return (
-    <>
-      {/* 1. Cash Allocation Form */}
-      <section className="panel deployment-form">
-        <div>
-          <span className="section-kicker">
-            <Wallet size={13} /> CASH ALLOCATION
-          </span>
-          <h2>Build a measured deployment plan</h2>
-          <p>
-            Choose a portfolio and budget. Build investment cases, compare entry prices and see the shares proposed for purchase.
-          </p>
-        </div>
-        <div className="form-row">
-          <label>
+    <div className="grid gap-3">
+      {/* Cash plan */}
+      <Panel title="Cash plan" meta={p ? `${p.name} · ${market}` : undefined} flush>
+        <div className="grid gap-3 border-b border-line p-3 sm:grid-cols-3">
+          <label className={label}>
             Portfolio
             <select
               value={portfolio}
@@ -160,447 +155,330 @@ export default function DeployView({
                 setPortfolio(e.target.value);
                 setBudget('');
               }}
+              className={field}
             >
               <option value="All portfolios">Choose a portfolio</option>
-              {portfolios.map((p: any) => (
-                <option key={p.name}>{p.name}</option>
+              {portfolios.map((x: any) => (
+                <option key={x.name}>{x.name}</option>
               ))}
             </select>
           </label>
-          <label>
+          <label className={label}>
             Market
-            <select value={market} onChange={(e) => setMarket(e.target.value)}>
+            <select value={market} onChange={(e) => setMarket(e.target.value)} className={field}>
               <option>India</option>
               <option>US</option>
             </select>
           </label>
-          <label>
-            Budget in INR
+          <label className={label}>
+            Budget (INR)
             <input
               type="number"
               min="0"
               max={Math.max(0, p?.cash || 0)}
-              placeholder={p ? Math.max(0, p.cash).toFixed(2) : 'Choose portfolio'}
+              placeholder={p ? Math.max(0, p.cash).toFixed(0) : 'Choose a portfolio'}
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
+              className={cn(field, 'font-mono')}
             />
           </label>
         </div>
-      </section>
 
-      {/* 2. Allocation Plan Results */}
-      {plan ? (
-        <section className="panel deployment-result">
-          <div className="panel-heading">
-            <h2>
+        {!plan ? (
+          <Empty>Choose a portfolio to calculate its cash plan.</Empty>
+        ) : (
+          <div className="grid gap-3 p-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="text-sm font-semibold">
+                {plan.allocations.length
+                  ? 'Proposed purchases'
+                  : entryWatchCount
+                    ? 'Waiting for better entry prices'
+                    : buyCoverage.pending
+                      ? 'Awaiting investment research'
+                      : 'No qualifying buys at current prices'}
+              </h3>
+              <span className="rounded-sm border border-gain/30 bg-gain-soft px-1.5 text-[11px] font-semibold text-gain">BUY-ONLY</span>
+            </div>
+            <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-8 [&>div]:bg-panel [&>div]:px-3 [&>div]:py-2">
+              {(
+                [
+                  ['Budget', inr(plan.budget), 'sm:col-span-1'],
+                  ['Assigned', inr(plan.budget - plan.reserve), ''],
+                  ['Reserve', inr(plan.reserve), ''],
+                  ['Eligible', buyCoverage.eligible, ''],
+                  ['Reviewed', buyCoverage.reviewed, ''],
+                  ['Awaiting research', buyCoverage.pending, ''],
+                  ['Approved', buyCoverage.approved, ''],
+                  ['Sized', buyCoverage.sized, ''],
+                ] as any[]
+              ).map(([k, v]) => (
+                <div key={k}>
+                  <div className="truncate text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{k}</div>
+                  <div className="font-mono text-sm font-semibold tabular-nums">{v}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
               {plan.allocations.length
-                ? 'Proposed purchases'
+                ? 'These stocks have a supported investment case and pass the financial, valuation, event and budget checks. Each price plan shows whether a purchase is actionable; closed markets or failed technical checks keep it conditional.'
                 : entryWatchCount
-                ? 'Waiting for better entry prices'
-                : buyCoverage.pending
-                ? 'Your cash plan is awaiting investment research'
-                : 'No qualifying buys at current prices'}
-            </h2>
-            <span className="badge green">BUY-ONLY PLAN</span>
-          </div>
-
-          <div className="plan-totals">
-            <div>
-              <small>Available budget</small>
-              <strong>{money(plan.budget)}</strong>
-            </div>
-            <div>
-              <small>Cash assigned to this plan</small>
-              <strong>{money(plan.budget - plan.reserve)}</strong>
-            </div>
-            <div>
-              <small>Cash kept in reserve</small>
-              <strong>{money(plan.reserve)}</strong>
-            </div>
-          </div>
-
-          <div className="buy-coverage">
-            <span>
-              <b>{buyCoverage.eligible}</b> screen-eligible
-            </span>
-            <span>
-              <b>{buyCoverage.reviewed}</b> investment decisions completed
-            </span>
-            <span>
-              <b>{buyCoverage.pending}</b> awaiting investment research
-            </span>
-            <span>
-              <b>{buyCoverage.approved}</b> ready for allocation
-            </span>
-            <span>
-              <b>{buyCoverage.sized}</b> new entries sized
-            </span>
-          </div>
-
-          <p>
-            {plan.allocations.length
-              ? 'These stocks have a supported investment case and pass the financial, valuation, event and budget checks. Each price plan below shows whether a purchase is actionable; closed markets or failed technical checks keep it conditional.'
-              : entryWatchCount
-              ? `${entryWatchCount} researched companies have supported investment cases, but current prices are above their buy ceilings. Their entry targets are shown below. ${buyCoverage.pending} other candidates await investment research.`
-              : buyCoverage.pending
-              ? `${buyCoverage.pending} screen-passing candidates still need a completed investment decision. This is unfinished research, not a finding that no suitable investment exists.`
-              : `The assessed stocks do not currently meet the investment, entry-price or portfolio requirements. See the specific reasons below.`}
-          </p>
-
-          {plan.allocations.map((a: any) => (
-            <PurchaseCard
-              key={a.ticker}
-              allocation={a}
-              portfolio={p}
-              holdings={data?.holdings || []}
-              discovery={discoveryData?.discovery}
-              budget={String(plan.budget)}
-              revision={data?.asOf + ':' + discoveryData?.discovery?.asOf}
-            />
-          ))}
-
-          {discoveryData?.discovery && (
-            <CashResearchQueue
-              data={data}
-              discovery={discoveryData.discovery}
-              portfolio={p}
-              market={market}
-              budget={plan.budget}
-              onPrice={(ticker) =>
-                showExecution(ticker, p.name, String(plan.budget))
-              }
-            />
-          )}
-
-          <details className="allocation-blockers">
-            <summary>
-              {plan.allocations.length
-                ? 'Why other stocks are not ready'
-                : 'Why purchases are not ready'}{' '}
-              <span className="count">{allocationBlocks.length}</span>
-            </summary>
-            <p>
-              For {p.name} · {market}. Each stock lists the financial, event, cash or exposure checks that are missing or have failed.
+                  ? `${entryWatchCount} researched companies have supported cases, but prices are above their buy ceilings. ${buyCoverage.pending} other candidates await research.`
+                  : buyCoverage.pending
+                    ? `${buyCoverage.pending} screen-passing candidates still need a completed investment decision. This is unfinished research, not a finding that nothing suitable exists.`
+                    : 'The assessed stocks do not meet the investment, entry-price or portfolio requirements. Reasons are listed below.'}
             </p>
-            {!discoveryData?.discovery && (
-              <div className="alert">
-                Independent new-stock screening is not available yet. Use Refresh market checks to request it without an AI run.
+
+            {plan.allocations.length > 0 && (
+              <div className="grid gap-3">
+                {plan.allocations.map((a: any) => (
+                  <PurchaseCard key={a.ticker} allocation={a} portfolio={p} holdings={data?.holdings || []} discovery={discovery} budget={String(plan.budget)} revision={data?.asOf + ':' + discovery?.asOf} />
+                ))}
               </div>
             )}
-            {allocationBlocks.slice(0, shownBlockers).map((row: any) => (
-              <article
-                className="allocation-blocker"
-                key={row.kind + row.ticker}
-              >
-                <div>
-                  <strong>{row.ticker}</strong>
-                  <span>{row.kind}</span>
-                  {row.label && <span className="badge gray">{row.label}</span>}
-                </div>
-                <ul>
-                  {row.reasons.map((reason: string, i: number) => (
-                    <li key={i}>{reason}</li>
+            {discovery && (
+              <div>
+                <CashResearchQueue data={data} discovery={discovery} portfolio={p} market={market} budget={plan.budget} onPrice={(ticker) => showExecution(ticker, p.name, String(plan.budget))} />
+              </div>
+            )}
+
+            <details className="group rounded-md border border-line">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium">
+                <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-open:rotate-90" />
+                {plan.allocations.length ? 'Why other stocks are not ready' : 'Why purchases are not ready'}
+                <span className="font-mono text-muted-foreground">{allocationBlocks.length}</span>
+              </summary>
+              <div className="border-t border-line">
+                {!discovery && <p className="px-3 py-2 text-xs text-warn">Independent screening is not available yet.</p>}
+                <ul className="divide-y divide-line">
+                  {allocationBlocks.slice(0, shownBlockers).map((row: any) => (
+                    <li key={row.kind + row.ticker} className="grid gap-1 px-3 py-2 text-xs sm:grid-cols-[160px_minmax(0,1fr)]">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono font-semibold">{symbol(row.ticker)}</span>
+                        <span className="text-muted-foreground">{row.kind}</span>
+                        {row.label && <span className="rounded-sm border border-line px-1 text-[10px] text-muted-foreground">{row.label}</span>}
+                      </span>
+                      <ul className="grid gap-0.5 text-muted-foreground">
+                        {row.reasons.map((r: string, i: number) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    </li>
                   ))}
                 </ul>
-              </article>
-            ))}
-            {allocationBlocks.length > shownBlockers && (
-              <button
-                className="button show-more"
-                onClick={() => setShownBlockers(shownBlockers + 30)}
-              >
-                Show 30 more stock explanations · {shownBlockers} of{' '}
-                {allocationBlocks.length} shown
-              </button>
-            )}
-            {!allocationBlocks.length && (
-              <p>No excluded stocks in the current assessment.</p>
-            )}
-          </details>
-
-          <div className="footnote">
-            Whole shares in India · four decimal places in the US · new entries: 3% minimum at low conviction, 5% otherwise · 15% position cap · household exposure checked · no automatic orders. Entries require a current, source-backed company review, suitable valuation, eligible financial screen, current event coverage and a valid technical setup. Prices are refreshed separately from research.
-          </div>
-        </section>
-      ) : (
-        <div className="empty panel" style={{ padding: '40px 24px', textAlign: 'center' }}>
-          Select a portfolio to calculate a cash plan.
-        </div>
-      )}
-
-      {/* 3. New-Stock Discovery Workbench */}
-      <section className="panel discovery-panel" style={{ marginTop: '32px' }}>
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">
-              <Search size={13} /> NEW-STOCK DISCOVERY
-            </span>
-            <h2>Find the next meaningful position</h2>
-            <p>
-              Jarvis financial screens ·{' '}
-              {market === 'India' ? 'NSE' : 'Nasdaq / NYSE / NYSE American'} · rules-based allocation
-            </p>
-          </div>
-          <QueueResearchButton />
-        </div>
-
-        {discoveryError && <div className="alert error">{discoveryError}</div>}
-
-        {discoveryData?.discovery ? (
-          <>
-            <div className="discovery-meta">
-              <span>Screened {date(discoveryData.discovery.asOf)}</span>
-              <span>
-                {discoveryData.discovery.screens.length} sub-screens ·{' '}
-                {discoveryCandidates.length} evaluated stocks loaded in this market
-              </span>
-            </div>
-
-            <details className="coverage-details">
-              <summary>Screening coverage and data sources</summary>
-            <DiscoveryCoverage
-              discovery={discoveryData.discovery}
-              market={market}
-            />
+                {allocationBlocks.length > shownBlockers && (
+                  <button onClick={() => setShownBlockers(shownBlockers + 30)} className="w-full border-t border-line py-2 text-xs text-brand hover:bg-hover">
+                    Show 30 more · {shownBlockers} of {allocationBlocks.length}
+                  </button>
+                )}
+                {!allocationBlocks.length && <p className="px-3 py-2 text-xs text-muted-foreground">No excluded stocks in the current assessment.</p>}
+              </div>
             </details>
-
-            <p className="discovery-scope">
-              {discoveryData.discovery.scope}. Select a portfolio to see its cash plan. Seven Jarvis gates are mandatory; warnings only reduce the position size.
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Whole shares in India · four decimals in the US · new entries 3% minimum at low conviction, 5% otherwise · 15% position cap · household exposure checked · no automatic orders.
             </p>
+          </div>
+        )}
+      </Panel>
 
-            {discoveryData.discovery.errors.length > 0 && (
-              <details className="data-warnings">
-                <summary>
-                  <AlertTriangle size={14} />
-                  {discoveryData.discovery.errors.length} screening feed warnings
+      {/* Screener */}
+      <Panel
+        title="Screener"
+        meta={discovery ? `${market === 'India' ? 'NSE' : 'US'} · screened ${date(discovery.asOf)} · ${discovery.screens.length} screens` : undefined}
+        flush
+        actions={
+          <span >
+            <QueueResearchButton />
+          </span>
+        }
+      >
+        {discoveryState.error && <p className="border-b border-line px-3 py-2 text-xs text-loss">{discoveryState.error}</p>}
+        {!discovery ? (
+          <Empty>Use Refresh market checks to screen stocks and update event coverage.</Empty>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+              <Segmented
+                value={status}
+                onChange={setStatus}
+                options={[
+                  { value: 'eligible', label: 'Gates pass', count: counts.eligible },
+                  { value: 'watchlist', label: 'Watchlist', count: counts.watchlist },
+                  { value: 'rejected', label: 'Fails a gate', count: counts.rejected },
+                ]}
+              />
+              <label className="relative ml-auto">
+                <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticker, name, sector…" className="h-7 w-52 rounded-md border border-line bg-background pr-2 pl-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              </label>
+            </div>
+            {discovery.errors.length > 0 && (
+              <details className="border-b border-line px-3 py-2 text-xs text-warn">
+                <summary className="flex cursor-pointer items-center gap-1.5">
+                  <AlertTriangle className="size-3.5" /> {discovery.errors.length} screening feed warnings
                 </summary>
-                <ul>
-                  {discoveryData.discovery.errors.map((e: string, i: number) => (
+                <ul className="mt-1 list-disc pl-5">
+                  {discovery.errors.map((e: string, i: number) => (
                     <li key={i}>{e}</li>
                   ))}
                 </ul>
               </details>
             )}
-
-            {['eligible', 'watchlist', 'rejected'].map((status) => (
-              <section className="discovery-group" key={status}>
-                <h3>
-                  {status === 'eligible'
-                    ? 'Eligible'
-                    : status === 'watchlist'
-                    ? 'Watchlist'
-                    : 'Rejected'}{' '}
-                  <span className="count">
-                    {
-                      discoveryCandidates.filter((c: any) => c.status === status)
-                        .length
-                    }
-                  </span>
-                </h3>
-                <p>
-                  {status === 'eligible'
-                    ? 'Passed the primary financial screen. Accounting, valuation and current trade checks decide whether a buy can be proposed; a screening pass alone is not approval.'
-                    : status === 'watchlist'
-                    ? 'Further checks are needed before these stocks can qualify.'
-                    : 'These stocks failed a screening check.'}
-                </p>
-                <div className="discovery-grid">
-                  {discoveryCandidates
-                    .filter((c: any) => c.status === status)
-                    .slice(0, shownCandidates[status])
-                    .map((c: any) => {
-                      const idea = ideaFor(c.ticker);
-                      const review = candidateReview(
-                        c,
-                        portfolio,
-                        discoveryData.ideas
-                      );
-                      return (
-                        <article className="discovery-card" key={c.ticker}>
-                          <div className="rec-top">
-                            <span
-                              className={
-                                'badge ' +
-                                (c.status === 'eligible'
-                                  ? 'green'
-                                  : c.status === 'rejected'
-                                  ? 'amber'
-                                  : 'violet')
-                              }
-                            >
-                              {c.status === 'eligible'
-                                ? 'Gates pass'
-                                : c.status === 'rejected'
-                                ? 'Fails a gate'
-                                : 'Watchlist'}
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="h-8 border-b border-line bg-raised text-left text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
+                    <th className="w-6" />
+                    {head('ticker', 'Stock', 'pl-1')}
+                    <th className="hidden px-2 font-semibold lg:table-cell">Sector</th>
+                    <th className="hidden px-2 font-semibold sm:table-cell">Gates</th>
+                    {head('growth', 'Rev CAGR', 'text-right hidden md:table-cell')}
+                    {head('roce', 'ROCE/ROE', 'text-right hidden md:table-cell')}
+                    {head('value', 'P / Value', 'text-right')}
+                    {head('implied', 'Implied g', 'text-right hidden xl:table-cell')}
+                    <th className="hidden px-2 font-semibold xl:table-cell">Status</th>
+                    <th className="px-3 text-right font-semibold">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, shown).map((c: any) => {
+                    const review = candidateReview(c, portfolio, discoveryData.ideas);
+                    const idea = ideaFor(c.ticker);
+                    const isOpen = open === c.ticker;
+                    return (
+                      <Fragment key={c.ticker}>
+                        <tr
+                          tabIndex={0}
+                          onClick={() => setOpen(isOpen ? null : c.ticker)}
+                          onKeyDown={(e) => e.key === 'Enter' && setOpen(isOpen ? null : c.ticker)}
+                          aria-expanded={isOpen}
+                          className={cn('h-9 cursor-pointer border-b border-line/70 hover:bg-hover', isOpen && 'bg-hover')}
+                        >
+                          <td className="pl-2">
+                            <ChevronRight className={cn('size-3.5 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
+                          </td>
+                          <td className="max-w-[16rem] py-1 pl-1">
+                            <div className="font-mono font-semibold">{symbol(c.ticker)}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">{c.name}</div>
+                          </td>
+                          <td className="hidden px-2 text-xs text-muted-foreground lg:table-cell">
+                            {c.sector} <span className="font-mono">· {c.category}</span>
+                          </td>
+                          <td className="hidden px-2 sm:table-cell">
+                            <GateGlyphs scorecard={c.scorecard} />
+                          </td>
+                          <td className="hidden px-2 text-right font-mono tabular-nums md:table-cell">{pct(c._growth)}</td>
+                          <td className="hidden px-2 text-right font-mono tabular-nums md:table-cell">{pct(c._roce, { signed: false })}</td>
+                          <td className="px-2 text-right">
+                            <ValuePct price={c.price} scorecard={c.scorecard} />
+                          </td>
+                          <td className="hidden px-2 text-right xl:table-cell">
+                            <span >
+                              <ImpliedGrowth reverse={c.scorecard?.reverseDcf} />
                             </span>
-                            <small>
-                              Category {c.category} · {c.sector}
-                            </small>
-                          </div>
-                          <h3>
-                            {c.ticker}
-                            <span>{money(c.price, c.currency)}</span>
-                          </h3>
-                          <p className="candidate-name">{c.name}</p>
-                          <GateChips scorecard={c.scorecard} />
-                          <div className="candidate-metrics">
-                            <span>
-                              {c.scorecard?.metrics?.cagrYears ? `Revenue ${c.scorecard.metrics.cagrYears}y` : 'Revenue'}{' '}
-                              <strong>
-                                {percent(c.scorecard?.metrics?.revenueCagr ?? c.metrics.revenue_growth_yoy)}
-                              </strong>
-                            </span>
-                            <span>
-                              {c.sector === 'Financials' ? 'Median ROE' : 'Median ROCE'}{' '}
-                              <strong>
-                                {percent(c.sector === 'Financials' ? c.scorecard?.metrics?.roeMedian ?? c.metrics.roe : c.scorecard?.metrics?.roceMedian ?? c.metrics.roce)}
-                              </strong>
-                            </span>
-                            <span>
-                              Price vs value <ValueTag price={c.price} scorecard={c.scorecard} />
-                            </span>
-                            <span>
-                              Reverse DCF <ImpliedGrowth reverse={c.scorecard?.reverseDcf} />
-                            </span>
-                          </div>
-                          {c.status === 'eligible' ? (
-                            <InvestmentDecision
-                              discovery={discoveryData.discovery}
-                              ticker={c.ticker}
-                              price={c.price}
-                              period={c.metrics?.statementDate}
-                              portfolioReason={
-                                idea?.decision === 'enter'
-                                  ? undefined
-                                  : review.reasons[0]
-                              }
-                            />
-                          ) : (
-                            <>
-                              <p className="candidate-decision">
-                                <strong>{review.label}</strong>
-                              </p>
-                              <ul>
-                                {review.reasons.slice(0, 3).map((reason: string) => (
-                                  <li key={reason}>{reason}</li>
-                                ))}
-                              </ul>
-                            </>
-                          )}
-                          <details className="research-risks">
-                            <summary>Screen criteria & evidence</summary>
-                            {c.matchedScreens.map((m: any, i: number) => (
-                              <p key={i}>
-                                <strong>{m.bucket}:</strong> {m.criteria}
-                              </p>
-                            ))}
-                            {c.gateReasons.map((r: string, i: number) => (
-                              <p key={i}>{r}</p>
-                            ))}
-                            {c.evidenceGaps.map((r: string, i: number) => (
-                              <p key={i}>{r}</p>
-                            ))}
-                          </details>
-                          <InlineTradePlan
-                            ticker={c.ticker}
-                            portfolio={
-                              portfolio === 'All portfolios'
-                                ? undefined
-                                : portfolio
-                            }
-                            action={
-                              c.status === 'eligible' &&
-                              idea?.decision === 'enter'
-                                ? 'buy'
-                                : 'watch'
-                            }
-                            budget={budget}
-                            revision={discoveryData.reportAsOf}
-                            referencePrice={c.price}
-                            currency={c.currency}
-                            reason={
-                              review.state === 'enter'
-                                ? undefined
-                                : review.reasons[0]
-                            }
-                            pending={review.state === 'pending'}
-                            buyReview
-                          />
-                          <div className="candidate-source">
-                            <button
-                              className="text-link"
-                              onClick={() =>
-                                showExecution(
-                                  c.ticker,
-                                  portfolio === 'All portfolios'
-                                    ? undefined
-                                    : portfolio,
-                                  budget
-                                )
-                              }
-                            >
-                              See price & shares <TrendingUp size={12} />
-                            </button>
-                            <small className={c.stale ? 'warn' : ''}>
-                              {c.stale ? 'Stale · ' : ''}
-                              {date(c.quoteTime)}
-                            </small>
-                            <a
-                              className="text-link"
-                              target="_blank"
-                              rel="noreferrer"
-                              href={c.sourceUrl}
-                            >
-                              Market source <ExternalLink size={11} />
-                            </a>
-                          </div>
-                        </article>
-                      );
-                    })}
-                </div>
-                {discoveryCandidates.filter((c: any) => c.status === status)
-                  .length > shownCandidates[status] && (
-                  <button
-                    className="button show-more"
-                    onClick={() =>
-                      setShownCandidates({
-                        ...shownCandidates,
-                        [status]: shownCandidates[status] + 24,
-                      })
-                    }
-                  >
-                    Show 24 more {status} stocks ·{' '}
-                    {Math.min(
-                      shownCandidates[status],
-                      discoveryCandidates.filter((c: any) => c.status === status)
-                        .length
-                    )}{' '}
-                    of{' '}
-                    {
-                      discoveryCandidates.filter((c: any) => c.status === status)
-                        .length
-                    }{' '}
-                    shown
-                  </button>
-                )}
-              </section>
-            ))}
-            {!discoveryCandidates.length && (
-              <div className="empty">
-                No candidates returned for this market. Keep cash reserved;
-                screening failures are not treated as an empty investment
-                universe.
-              </div>
+                          </td>
+                          <td className="hidden max-w-[14rem] truncate px-2 text-xs text-muted-foreground xl:table-cell" title={review.reasons[0]}>
+                            {review.label}
+                          </td>
+                          <td className="px-3 text-right font-mono tabular-nums">{px(c.price, c.currency)}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="border-b border-line bg-background">
+                            <td colSpan={10} className="p-3">
+                              <div className="grid gap-3 lg:grid-cols-2">
+                                <div className="grid min-w-0 content-start gap-3">
+                                  <div className="text-xs text-muted-foreground sm:hidden">
+                                    <GateGlyphs scorecard={c.scorecard} labels />
+                                  </div>
+                                  <div>
+                                    {c.status === 'eligible' ? (
+                                      <InvestmentDecision discovery={discovery} ticker={c.ticker} price={c.price} period={c.metrics?.statementDate} portfolioReason={idea?.decision === 'enter' ? undefined : review.reasons[0]} />
+                                    ) : (
+                                      <>
+                                        <p className="text-[13px]">
+                                          <strong>{review.label}</strong>
+                                        </p>
+                                        <ul className="mt-1 grid list-disc gap-0.5 pl-4 text-xs text-muted-foreground">
+                                          {review.reasons.slice(0, 3).map((r: string) => (
+                                            <li key={r}>{r}</li>
+                                          ))}
+                                        </ul>
+                                      </>
+                                    )}
+                                  </div>
+                                  <details className="text-xs">
+                                    <summary className="cursor-pointer font-medium text-muted-foreground">Screen criteria & evidence</summary>
+                                    <ul className="mt-1 grid gap-1">
+                                      {c.matchedScreens.map((m: any, i: number) => (
+                                        <li key={i}>
+                                          <strong>{m.bucket}:</strong> {m.criteria}
+                                        </li>
+                                      ))}
+                                      {[...c.gateReasons, ...c.evidenceGaps].map((r: string, i: number) => (
+                                        <li key={'g' + i} className="text-muted-foreground">{r}</li>
+                                      ))}
+                                    </ul>
+                                  </details>
+                                </div>
+                                <div className="grid min-w-0 content-start gap-3">
+                                  <div>
+                                    <InlineTradePlan
+                                      ticker={c.ticker}
+                                      portfolio={portfolio === 'All portfolios' ? undefined : portfolio}
+                                      action={c.status === 'eligible' && idea?.decision === 'enter' ? 'buy' : 'watch'}
+                                      budget={budget}
+                                      revision={discoveryData.reportAsOf}
+                                      referencePrice={c.price}
+                                      currency={c.currency}
+                                      reason={review.state === 'enter' ? undefined : review.reasons[0]}
+                                      pending={review.state === 'pending'}
+                                      buyReview
+                                    />
+                                  </div>
+                                  <div>
+                                    <ReportEvidence ticker={c.ticker} scorecard={c.scorecard} compact />
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                                    <button onClick={() => showExecution(c.ticker, portfolio === 'All portfolios' ? undefined : portfolio, budget)} className="inline-flex items-center gap-1 text-brand hover:underline">
+                                      <TrendingUp className="size-3.5" /> Price & shares
+                                    </button>
+                                    <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                                      Market source <ExternalLink className="size-3" />
+                                    </a>
+                                    <span className={cn('ml-auto font-mono text-[11px]', c.stale ? 'text-warn' : 'text-muted-foreground')}>
+                                      {c.stale ? 'Stale · ' : ''}
+                                      {date(c.quoteTime)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {!rows.length && <Empty>{search ? 'No stocks match.' : 'No candidates in this group. Screening failures are not treated as an empty universe.'}</Empty>}
+            {rows.length > shown && (
+              <button onClick={() => setShown(shown + PAGE)} className="w-full border-t border-line py-2 text-xs text-brand hover:bg-hover">
+                Show {Math.min(PAGE, rows.length - shown)} more · {shown} of {rows.length}
+              </button>
             )}
+            <details className="group border-t border-line">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" /> Screening coverage and data sources
+              </summary>
+              <div className="border-t border-line p-3">
+                <p className="mb-2 text-xs text-muted-foreground">{discovery.scope}. Seven Jarvis gates are mandatory; warnings only reduce the position size.</p>
+                <DiscoveryCoverage discovery={discovery} market={market} />
+              </div>
+            </details>
           </>
-        ) : (
-          <div className="empty">
-            Use Refresh market checks to screen stocks and update event coverage.
-            Existing holdings remain available while checks run.
-          </div>
         )}
-      </section>
-    </>
+      </Panel>
+    </div>
   );
 }

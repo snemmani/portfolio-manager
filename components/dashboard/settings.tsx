@@ -1,13 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  Sparkles,
-  LockKeyhole,
-  Activity,
-  ExternalLink,
-  ArrowRight,
-} from 'lucide-react';
+import { Sparkles, LockKeyhole, Activity, ExternalLink } from 'lucide-react';
 import { date } from './shared';
 import { useApi } from '../../lib/client/use-api';
 import { queueResearch } from './view-data';
@@ -15,11 +9,14 @@ import { useResearchStatus } from '../research/activity';
 import AlertSettings from '../alert-settings';
 import TradeControls from '../trade-controls';
 import MarketStatus from '../market-status';
+import { Panel } from '../terminal/ui';
+import { cn } from '@/lib/utils';
+
+const btn = 'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:opacity-50';
 
 export default function SettingsView() {
   const settings = useApi('/api/settings', { interval: 300000 });
   const status = useResearchStatus().data;
-
   const [config, setConfigValue] = useState<any>({ model: '', enabled: true });
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState('');
@@ -29,12 +26,10 @@ export default function SettingsView() {
   useEffect(() => {
     if (settings.data && !dirty) setConfigValue(settings.data);
   }, [settings.data, dirty]);
-
   const setConfig = (v: any) => {
     setDirty(true);
     setConfigValue(v);
   };
-
   const runner = status?.runner || settings.data?.runner;
 
   const save = async () => {
@@ -43,17 +38,12 @@ export default function SettingsView() {
       const r = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: config.model,
-          enabled: config.enabled,
-          intervalMinutes: 120,
-        }),
+        body: JSON.stringify({ model: config.model, enabled: config.enabled, intervalMinutes: 120 }),
       });
       const d: any = await r.json();
       if (!r.ok) throw Error(d.error);
       setNotice(d.message);
-      const refreshed = await settings.refresh();
-      if (refreshed) setDirty(false);
+      if (await settings.refresh()) setDirty(false);
       window.dispatchEvent(new Event('arthapalana-research-change'));
     } catch (e: any) {
       setNotice(e.message);
@@ -61,13 +51,10 @@ export default function SettingsView() {
       setSaving(false);
     }
   };
-
-  const loadAnalysis = async (start = false) => {
-    if (!start) return;
+  const queue = async () => {
     setAnalyzing(true);
     try {
-      const d = await queueResearch();
-      setNotice(d.message);
+      setNotice((await queueResearch()).message);
     } catch (e: any) {
       setNotice(e.message);
     } finally {
@@ -76,173 +63,124 @@ export default function SettingsView() {
   };
 
   return (
-    <>
-      {settings.error && (
-        <div className="alert error">
-          {settings.error}
-          <button onClick={settings.refresh}>Retry settings</button>
-        </div>
-      )}
+    <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-w-0 gap-3">
+        {settings.error && (
+          <div className="flex items-center gap-3 rounded-md border border-loss/40 bg-loss-soft px-3 py-2 text-sm text-loss">
+            {settings.error}
+            <button onClick={settings.refresh} className="ml-auto underline">
+              Retry
+            </button>
+          </div>
+        )}
 
-      <div className="settings-layout">
-        <div>
-          <MarketStatus />
-          <TradeControls settings />
-          <AlertSettings />
+        <Panel title={<span className="flex items-center gap-2"><Sparkles className="size-3.5 text-brand" /> AI research runner</span>}>
+          <div className="grid gap-4">
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line text-xs sm:grid-cols-4 [&>div]:bg-raised [&>div]:p-2.5">
+              <div>
+                <dt className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Status</dt>
+                <dd className={cn('mt-0.5 flex items-center gap-1.5 font-mono font-semibold', runner?.online ? 'text-gain' : 'text-warn')}>
+                  <span className={cn('size-1.5 rounded-full', runner?.online ? 'bg-gain' : 'bg-warn')} />
+                  {runner?.online ? 'ONLINE' : 'OFFLINE'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Auth</dt>
+                <dd className="mt-0.5 truncate font-mono">{runner?.auth_mode === 'antigravity' ? 'Antigravity' : runner?.auth_mode || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Heartbeat</dt>
+                <dd className="mt-0.5 truncate font-mono">{date(runner?.heartbeat_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Last report</dt>
+                <dd className="mt-0.5 truncate font-mono">{date(runner?.last_completed_at)}</dd>
+              </div>
+            </dl>
+            {runner?.machine && <p className="-mt-2 font-mono text-[11px] text-muted-foreground">Machine {runner.machine}</p>}
+            {runner?.last_error && <p className="rounded-md border border-loss/40 bg-loss-soft px-3 py-2 text-xs text-loss">{runner.last_error}</p>}
 
-          <section className="panel settings-panel">
-            <span className="section-kicker">
-              <Sparkles size={14} /> LOCAL ANTIGRAVITY RUNNER
-            </span>
-            <h2>Your subscription. Your research.</h2>
-            <p>
-              Recommendations are generated on this machine using AGY signed in with your Antigravity account. This app does not accept API keys or make billable OpenAI API calls.
-            </p>
-
-            <div className="runner-status">
-              <span className={'badge ' + (runner?.online ? 'green' : 'amber')}>
-                {runner?.online ? 'RUNNER ONLINE' : 'RUNNER OFFLINE'}
-              </span>
-              <p>
-                <strong>Machine:</strong>{' '}
-                {runner?.machine || 'Awaiting first heartbeat'}
-              </p>
-              <p>
-                <strong>Authentication:</strong>{' '}
-                {runner?.auth_mode === 'antigravity'
-                  ? 'Antigravity account'
-                  : runner?.auth_mode || 'Awaiting confirmation'}
-              </p>
-              <p>
-                <strong>Last heartbeat:</strong> {date(runner?.heartbeat_at)}
-              </p>
-              <p>
-                <strong>Last completed report:</strong>{' '}
-                {date(runner?.last_completed_at)}
-              </p>
-              {runner?.last_error && (
-                <div className="alert error">{runner.last_error}</div>
-              )}
-            </div>
-
-            <label>
-              Antigravity model (optional)
+            <label className="grid gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Model override (optional)</span>
               <input
-                placeholder="gemini-3.8-flash-high — default"
+                placeholder="gemini-3.8-flash-high (default)"
                 value={config.model}
-                onChange={(e) =>
-                  setConfig({ ...config, model: e.target.value })
-                }
+                onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                className="h-8 rounded-md border border-line bg-background px-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <small>
-                Leave blank to use Gemini 3.8 Flash (High). An override must be available to your Antigravity account. Unavailable models fail without switching to API billing.
-              </small>
+              <span className="text-[11px] text-muted-foreground">Must be available to your Antigravity account. Unavailable models fail; they never switch to API billing.</span>
             </label>
 
-            <div className="settings-divider" />
-
-            <div className="toggle-row">
-              <div>
-                <strong>Automatic company research</strong>
-                <p>
-                  Company research at 9:15 AM, 11:15 AM, 1:15 PM and 3:15 PM IST on weekdays. Buy and trim calculations run independently every 15 minutes. Manual research remains available at any time.
+            <div className="flex items-start gap-3 rounded-md border border-line p-3">
+              <div className="flex-1">
+                <div className="text-sm font-semibold">Automatic company research</div>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  Weekdays at 9:15, 11:15, 13:15 and 15:15 IST. Buy and trim calculations run independently every 15 minutes; manual research is always available.
+                </p>
+                <p className="mt-1.5 font-mono text-[11px]">
+                  {!config.enabled ? (
+                    <span className="text-warn">Paused</span>
+                  ) : config.schedule?.automaticAllowed ? (
+                    <span className="text-gain">Enabled · business hours</span>
+                  ) : (
+                    <span className="text-muted-foreground">Outside business hours · on demand</span>
+                  )}
+                  {config.enabled && config.schedule?.nextAutomaticAt && <span className="text-muted-foreground"> · next {date(config.schedule.nextAutomaticAt)}</span>}
                 </p>
               </div>
               <button
                 role="switch"
                 aria-checked={config.enabled}
                 aria-label="Automatic company research"
-                className={'toggle ' + (config.enabled ? 'on' : '')}
                 onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+                className={cn('relative h-5 w-9 shrink-0 rounded-full border transition-colors', config.enabled ? 'border-brand bg-brand' : 'border-line bg-raised')}
               >
-                <i />
+                <span className={cn('absolute top-0.5 block size-3.5 rounded-full bg-background transition-transform', config.enabled ? 'translate-x-[18px]' : 'translate-x-0.5')} />
               </button>
             </div>
 
-            <div className="research-schedule">
-              <h3>Research schedule · IST (UTC+05:30)</h3>
-              <p>
-                Monday–Friday, at 9:15 AM, 11:15 AM, 1:15 PM and 3:15 PM. Weekends and other hours: on demand only. Weekday public holidays follow this schedule.
-              </p>
-              <p>
-                <strong>
-                  {!config.enabled
-                    ? 'Automatic research is paused.'
-                    : config.schedule?.automaticAllowed
-                    ? 'Business hours: automatic research is enabled.'
-                    : 'Outside business hours: on demand only.'}
-                </strong>
-              </p>
-              {config.enabled && config.schedule?.nextAutomaticAt && (
-                <p>Next automatic request: {date(config.schedule.nextAutomaticAt)}</p>
-              )}
-              <small>
-                Missed reviews are not replayed. A report already running can finish. Manual research is available at any time and uses your Antigravity allowance.
-              </small>
-            </div>
-
-            <div className="settings-actions">
-              <button
-                className="button"
-                disabled={
-                  analyzing ||
-                  ['queued', 'running'].includes(status?.current?.status)
-                }
-                onClick={() => loadAnalysis(true)}
-              >
-                Queue research now
-              </button>
-              <button
-                className="button primary"
-                disabled={saving}
-                onClick={save}
-              >
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={save} disabled={saving} className={cn(btn, 'bg-primary text-primary-foreground hover:opacity-90')}>
                 {saving ? 'Saving…' : 'Save settings'}
               </button>
+              <button onClick={queue} disabled={analyzing || ['queued', 'running'].includes(status?.current?.status)} className={cn(btn, 'border border-line font-medium hover:bg-hover')}>
+                Queue research now
+              </button>
+              {notice && (
+                <span role="status" className="text-xs text-muted-foreground">
+                  {notice}
+                </span>
+              )}
             </div>
+            <p className="text-[11px] text-muted-foreground">Missed reviews are not replayed. A running report can finish. Manual research uses your Antigravity allowance.</p>
+          </div>
+        </Panel>
 
-            {notice && (
-              <div className="alert" role="status">
-                {notice}
-              </div>
-            )}
-          </section>
+        <div className="grid gap-3">
+          <MarketStatus />
+          <TradeControls settings />
+          <AlertSettings />
         </div>
-
-        <aside className="settings-notes">
-          <div className="panel">
-            <LockKeyhole size={22} />
-            <h3>Login stays on this machine</h3>
-            <p>
-              Your Antigravity account login stays in the app’s private Docker credential mount. The researcher runs in an isolated profile with paid-credit fallback disabled.
-            </p>
-          </div>
-
-          <div className="panel">
-            <Activity size={22} />
-            <h3>No API credit usage</h3>
-            <p>
-              API-key authentication is refused, inherited API credentials are excluded, and account or quota failures stop research. AGY paid-credit fallback is disabled.
-            </p>
-            <p>
-              When this machine is asleep or offline, the dashboard keeps the last successful report and shows its age.
-            </p>
-          </div>
-
-          <div className="panel">
-            <ExternalLink size={20} />
-            <h3>Antigravity CLI</h3>
-            <a
-              className="text-link"
-              href="https://antigravity.google/docs/cli/headless/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Official CLI documentation <ArrowRight size={13} />
-            </a>
-          </div>
-        </aside>
       </div>
-    </>
+
+      <aside className="grid gap-3 text-sm">
+        {[
+          [LockKeyhole, 'Login stays on this machine', 'Your Antigravity login lives in the app’s private Docker credential mount. The researcher runs in an isolated profile with paid-credit fallback disabled.'],
+          [Activity, 'No API credit usage', 'API-key authentication is refused, inherited API credentials are excluded, and quota failures stop research. When this machine is offline the dashboard keeps the last report and shows its age.'],
+        ].map(([Icon, title, body]: any) => (
+          <Panel key={title}>
+            <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <Icon className="size-4 text-brand" /> {title}
+            </h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">{body}</p>
+          </Panel>
+        ))}
+        <Panel>
+          <a href="https://antigravity.google/docs/cli/headless/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline">
+            Antigravity CLI documentation <ExternalLink className="size-3" />
+          </a>
+        </Panel>
+      </aside>
+    </div>
   );
 }

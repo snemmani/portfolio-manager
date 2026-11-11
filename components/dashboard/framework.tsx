@@ -1,18 +1,19 @@
 'use client';
 
-import { ShieldCheck, Check, AlertTriangle, LineChart, ExternalLink } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, LineChart, ExternalLink, Calculator } from 'lucide-react';
 import type { ViewProps } from './types';
 import { THRESHOLDS, VALUATION } from '../../lib/jarvis-gates';
 import { RULES } from '../../lib/engine';
+import { Panel } from '../terminal/ui';
 
 /** The Jarvis policy as the code enforces it (values read from lib/jarvis-gates.ts). */
 export default function FrameworkView({}: ViewProps) {
   const mandatory: [string, string][] = [
-    ['Data integrity', `A usable price, statements in (or convertible to) the trading currency, and annual statements no older than 18 months.`],
+    ['Data integrity', 'A usable price, statements in (or convertible to) the trading currency, and annual statements no older than 18 months.'],
     ['Solvency', `Debt/equity below ${THRESHOLDS.debtEquityMax}, interest cover above ${THRESHOLDS.interestCoverMin}× and Altman Z above ${THRESHOLDS.altmanMin}. Banks and lenders: capital adequacy and bad loans from the company review.`],
     ['Earnings quality', `Operating cash flow at least ${THRESHOLDS.cashConversionMin * 100}% of profit over three years, and no serious forensic red flag (Beneish M-score above ${THRESHOLDS.beneishFlag} with high accruals or receivables outpacing sales, or a serious finding in the company review).`],
     ['Return on capital', `Median ROCE of at least ${THRESHOLDS.roceMin}% over the available years. Lenders: median ROE ≥ ${THRESHOLDS.roeMinFinancial}% or median ROA ≥ ${THRESHOLDS.roaMinFinancial}%.`],
-    ['Margin of safety', `Price at or below the lower of the code valuation and the researched maximum entry price.`],
+    ['Margin of safety', 'Price at or below the lower of the code valuation and the researched maximum entry price.'],
     ['Position and sector caps', `${RULES.single}% per stock (trim once above ${RULES.trimTrigger}%), 25% cyclical, 20% commodity, 15% Category C, household single-stock 15%.`],
     ['No serious red flag', `Fraud, regulator action, auditor resignation, default, insolvency, promoter-pledge invocation, trading suspension and similar. Coverage must be under ${THRESHOLDS.eventCoverageHours} hours old.`],
   ];
@@ -26,69 +27,96 @@ export default function FrameworkView({}: ViewProps) {
     'Results due within 14 days; ordinary company headlines',
     'Unverified accounting notes or other research gaps',
   ];
+  const h = 'mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground';
   return (
-    <div className="framework-layout">
-      <section className="panel framework-detail">
-        <span className="section-kicker">
-          <ShieldCheck size={14} /> MANDATORY — ALL MUST PASS
-        </span>
-        <h2>Seven checks protect the capital. Everything else sizes the position.</h2>
-        <p>
-          A stock does not need to be perfect. It must pass these seven gates. Missing evidence counts as
-          “evidence needed”, never as a pass.
+    <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Panel title={<span className="flex items-center gap-2"><ShieldCheck className="size-3.5 text-brand" /> Mandatory · all must pass</span>} flush>
+        <p className="border-b border-line px-3 py-2.5 text-sm">
+          A stock does not need to be perfect; it must pass these seven gates. Missing evidence counts as <em>evidence needed</em>, never as a pass.
         </p>
-        {mandatory.map(([title, detail], i) => (
-          <div className="framework-rule" key={title}>
-            <span>{String(i + 1).padStart(2, '0')}</span>
-            <div>
-              <h3>{title}</h3>
-              <p>{detail}</p>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      <aside className="panel coverage">
-        <h2>
-          <AlertTriangle size={16} /> Warnings shrink the position
-        </h2>
-        <ul>
-          {warnings.map((w) => (
-            <li key={w}>
-              <Check size={16} />
-              {w}
+        <ol className="divide-y divide-line">
+          {mandatory.map(([title, detail], i) => (
+            <li key={title} className="grid grid-cols-[32px_minmax(0,1fr)] gap-2 px-3 py-2.5">
+              <span className="font-mono text-xs text-brand">{String(i + 1).padStart(2, '0')}</span>
+              <div>
+                <h3 className="text-sm font-semibold">{title}</h3>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+              </div>
             </li>
           ))}
-        </ul>
-        <p>
-          0 warnings: normal targets (5% new, 10% addition). 1–2 warnings: capped at {THRESHOLDS.warnedPositionCapPct}%.{' '}
-          {THRESHOLDS.watchlistWarnings} or more: watchlist. Ex-dividend dates are shown but do not count.
-        </p>
-        <h2 style={{ marginTop: 20 }}>
-          <LineChart size={16} /> Timing (satellite)
-        </h2>
-        <p>
-          Buy-ins need a sign of support: holding a swing low or key average for three sessions, RSI recovering from
-          oversold, or reclaiming the 50-day average. Trims need over-extension: 25% above the 200-day average, weekly
-          RSI ≥ 75, daily RSI ≥ 75 at a 52-week high, or climax volume. One signal trims 10%; two or more trim 20%.
-          Concentration trims above {RULES.trimTrigger}% are always proposed.
-        </p>
-        <h2 style={{ marginTop: 20 }}>Valuation assumptions</h2>
-        <p>
-          India: {VALUATION.IN.discount * 100}% discount rate, growth capped at {VALUATION.IN.growthCap * 100}% fading to{' '}
-          {VALUATION.IN.terminal * 100}% over ten years. US: {VALUATION.US.discount * 100}%, {VALUATION.US.growthCap * 100}% →{' '}
-          {VALUATION.US.terminal * 100}%. Growth starts from the lower of revenue and profit compound growth; only
-          earnings not needed for reinvestment (growth ÷ ROCE) count. Lenders use justified price-to-book. The reverse DCF runs the same model backwards: the growth today’s price requires, against what the company has delivered (lenders: perpetual growth implied by price-to-book). It informs judgement; it is not an extra gate.
-        </p>
-        <a
-          href="https://github.com/snemmani/jarvis/blob/5750d4bf5e7187eb052129e8e282c53edaf35cdf/bujo/portoflio/rebalance.py"
-          target="_blank"
-          rel="noreferrer"
-          className="text-link"
-        >
-          View source framework <ExternalLink size={13} />
-        </a>
-      </aside>
+        </ol>
+      </Panel>
+
+      <div className="grid gap-3">
+        <Panel>
+          <h3 className={h}>
+            <AlertTriangle className="size-3.5 text-warn" /> Warnings shrink the position
+          </h3>
+          <ul className="grid gap-1 text-sm">
+            {warnings.map((w) => (
+              <li key={w} className="flex gap-2">
+                <span className="mt-[7px] block size-1.5 shrink-0 rounded-[1px] bg-warn" />
+                {w}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line text-center [&>div]:bg-raised [&>div]:p-2">
+            <div>
+              <div className="font-mono text-sm font-semibold">0</div>
+              <div className="text-[11px] text-muted-foreground">5% new · 10% add</div>
+            </div>
+            <div>
+              <div className="font-mono text-sm font-semibold text-warn">1–2</div>
+              <div className="text-[11px] text-muted-foreground">capped at {THRESHOLDS.warnedPositionCapPct}%</div>
+            </div>
+            <div>
+              <div className="font-mono text-sm font-semibold text-loss">{THRESHOLDS.watchlistWarnings}+</div>
+              <div className="text-[11px] text-muted-foreground">watchlist</div>
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">Ex-dividend dates are shown but do not count.</p>
+        </Panel>
+
+        <Panel>
+          <h3 className={h}>
+            <LineChart className="size-3.5 text-info" /> Timing (satellite)
+          </h3>
+          <p className="text-sm leading-relaxed">
+            Buy-ins need a sign of support: holding a swing low or key average for three sessions, RSI recovering from oversold, or reclaiming the 50-day average. Trims need over-extension: 25% above the 200-day average, weekly RSI ≥ 75, daily RSI ≥ 75 at a 52-week high, or climax volume. One signal trims 10%; two or more trim 20%. Concentration trims above {RULES.trimTrigger}% are always proposed.
+          </p>
+        </Panel>
+
+        <Panel>
+          <h3 className={h}>
+            <Calculator className="size-3.5 text-brand" /> Valuation
+          </h3>
+          <dl className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line font-mono text-xs [&>div]:bg-raised [&>div]:p-2">
+            <div>
+              <dt className="text-muted-foreground">India</dt>
+              <dd>
+                {VALUATION.IN.discount * 100}% · cap {VALUATION.IN.growthCap * 100}% → {VALUATION.IN.terminal * 100}%
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">US</dt>
+              <dd>
+                {VALUATION.US.discount * 100}% · cap {VALUATION.US.growthCap * 100}% → {VALUATION.US.terminal * 100}%
+              </dd>
+            </div>
+          </dl>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Discount rate · growth cap fading to terminal growth over ten years. Growth starts from the lower of revenue and profit compound growth; only earnings not needed for reinvestment (growth ÷ ROCE) count. Lenders use justified price-to-book. The reverse DCF runs the same model backwards: the growth today’s price requires against what the company has delivered. It informs judgement; it is not a gate.
+          </p>
+          <a
+            href="https://github.com/snemmani/jarvis/blob/5750d4bf5e7187eb052129e8e282c53edaf35cdf/bujo/portoflio/rebalance.py"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex items-center gap-1 text-xs text-brand hover:underline"
+          >
+            Source framework <ExternalLink className="size-3" />
+          </a>
+        </Panel>
+      </div>
     </div>
   );
 }

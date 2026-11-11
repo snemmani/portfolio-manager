@@ -37,7 +37,8 @@ async function baseDashboard(env:Env){return cached('dashboard',300000,async()=>
  const holdings=book.holdings.map(h=>assess(h,book.portfolios.find(p=>p.name===h.portfolio),f[h.ticker]));
  const warnings=[...book.warnings];if(fx===null)warnings.push('Fresh USD/INR unavailable. USD holdings are excluded from INR totals and trade sizing is blocked.');if(book.totals.unpriced)warnings.push(`${book.totals.unpriced} holding(s) cannot be valued. Totals are partial, not zero-value positions.`);
  const stale=holdings.filter(h=>h.quote?.stale);if(stale.length)warnings.push(`${stale.length} holding price(s) may be stale relative to the expected last trading session. Exchange holidays may require manual confirmation.`);
- const recent=rows.slice().sort((a,b)=>(b.Date||'').localeCompare(a.Date||'')||b.Id-a.Id).slice(0,30);
+ const hidden=new Set((book.hiddenPortfolios||[]).map((p:any)=>p.name));
+ const recent=rows.filter((r:any)=>!hidden.has(r.Portfolio)).sort((a,b)=>(b.Date||'').localeCompare(a.Date||'')||b.Id-a.Id).slice(0,30);
  const cyclical=book.holdings.filter(h=>['Industrials','Commodities'].includes(h.sector)).reduce((s,h)=>s+(h.value||0),0);const commodity=book.holdings.filter(h=>h.sector==='Commodities').reduce((s,h)=>s+(h.value||0),0);
  return {asOf:new Date().toISOString(),ledgerRevision,nextRefreshSeconds:300,recordCount:rows.length,source:'NocoDB · PortfolioTransactions',jarvisCommit:'5750d4bf5e7187eb052129e8e282c53edaf35cdf',...book,holdings,tradeHistory:book.tradeHistory.map((h:any)=>assess({...h,weight:h.weight??0},book.portfolios.find(p=>p.name===h.portfolio),f[h.ticker])),warnings,recent,fx,fxTime:fxQuote.time,indices:['^NSEI','^BSESN','^GSPC'].map(t=>quotes[t]),rules:RULES,exposure:{cyclical:book.totals.value>0?cyclical/book.totals.value*100:null,commodity:book.totals.value>0?commodity/book.totals.value*100:null}};
  });}
