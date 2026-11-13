@@ -20,7 +20,7 @@ export function allocationExplanations(portfolio:any,holdings:any[],market:strin
  if(h.invalid)reasons.push('Ledger or corporate-action reconciliation is required.');
  if(h.quote?.stale||!h.price||!h.fx)reasons.push('A fresh price and usable currency conversion are required.');
  if(h.weight>=10)reasons.push(`Position weight is ${number(h.weight)}%; the existing-stock add screen requires less than 10% (single-stock cap: 15%).`);
- if(h.sector==='Financials')reasons.push('The financial-services review is incomplete. The available checks cannot confirm a buy for this bank, lender, insurer or asset manager.');
+ if(h.sector==='Financials')reasons.push('The sector-specific company review is incomplete. Classification, balance-sheet evidence and a supported valuation are required before buying.');
  if(!f)reasons.push('Comparable company fundamentals are unavailable; the purchase screen cannot be verified.');
  else if(h.sector!=='Financials'){
  if(!f.fresh)reasons.push('Fundamental evidence is not current enough to pass the purchase screen.');

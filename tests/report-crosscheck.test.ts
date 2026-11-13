@@ -42,3 +42,7 @@ assert.equal(reportUsage(undefined, report).used, false);
 assert.equal(money(197792.78e7, 'INR'), '₹1,97,793 Cr', 'Indian figures are shown in crores');
 assert.equal(money(-2.5e9, 'USD'), '−$2.50B');
 console.log('PASS: annual-report cross-check scales report units, applies per-metric tolerances, matches fiscal periods, never compares across currencies, and the usage panel lists only review areas citing the current report summary.');
+for(const [report,yahoo,status] of [[0,100,'differs'],[0,-100,'differs'],[0,0,'match'],[null,0,'missing'],[0,null,'missing']] as const){
+ const c=crossCheck([{period:'2026-03-31',currency:'INR',unitMultiplier:1,revenue:report}],{currency:'INR',rows:[{period:'2026-03-31',revenue:yahoo}]});
+ assert.equal(c.rows[0].status,status);if(status==='differs')assert.equal(c.differs,1);
+}

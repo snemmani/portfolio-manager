@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ArrowRight, ChevronRight, Search, ShieldCheck } from 'lucide-react';
-import { useHoldings, useAnalysis } from './view-data';
+import { useHoldings, useAnalysis, useHoldingReviewPolicy } from './view-data';
 import type { ViewProps } from './types';
 import { mergeRecommendations } from '../../lib/merge-recommendations';
 import { actionPriority, actionLabel } from '../../lib/recommendation-order';
@@ -16,12 +16,13 @@ export default function OverviewView({ data, portfolio, navigate, setSelected }:
   const holdings = useHoldings(data, portfolio);
   const [search, setSearch] = useState('');
   const analysis = useAnalysis(true).data;
+  const reviewPolicy = useHoldingReviewPolicy(data);
   const priorities = useMemo(
     () =>
-      mergeRecommendations(holdings, analysis?.report?.recommendations || [], { rulesBased: true, fundamentalPolicy: 'investor-v1' })
+      mergeRecommendations(holdings, analysis?.report?.recommendations || [], reviewPolicy)
         .filter((r: any) => actionPriority(r.action) <= 3 && !/^review$/i.test(String(r.action)))
         .sort((a: any, b: any) => actionPriority(a.action) - actionPriority(b.action)),
-    [holdings, analysis],
+    [holdings, analysis, reviewPolicy],
   );
   const totals = data?.portfolios?.find((p: any) => p.name === portfolio) || data?.totals;
   const unrealised = totals && !totals.unpriced ? totals.equity - totals.invested : null;
@@ -86,7 +87,7 @@ export default function OverviewView({ data, portfolio, navigate, setSelected }:
               {priorities.slice(0, 6).map((h: any) => (
                 <li key={h.portfolio + h.ticker}>
                   <button onClick={() => open(h)} className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-left hover:bg-hover">
-                    <SignalBadge action={actionLabel(h.action)} className="w-24 justify-center" />
+                    <SignalBadge action={actionLabel(h.action)} label={h.action==='Review'?h.holding?.purchaseStep?.label:undefined} title={h.holding?.purchaseStep?.reason} className="max-w-48 justify-center" />
                     <span className="min-w-0">
                       <span className="flex items-baseline gap-2">
                         <span className="font-mono text-[13px] font-semibold">{symbol(h.ticker)}</span>

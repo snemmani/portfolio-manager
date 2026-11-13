@@ -11,7 +11,7 @@ export function actionPriority(action:unknown){
 }
 export function actionLabel(action:unknown){
  const a=String(action||'').trim().toLowerCase();
- return ({exit:'Exit',sell:'Sell',trim:'Trim',buy:'Buy',add:'Add candidate',review:'Review',watch:'Watch',hold:'Hold',locked:'Locked'} as Record<string,string>)[a]||String(action||'Review');
+ return ({exit:'Exit',sell:'Sell',trim:'Trim',buy:'Buy',add:'Checking next step…','add candidate':'Checking next step…',review:'Review',watch:'Watch',hold:'Hold',locked:'Locked'} as Record<string,string>)[a]||String(action||'Review');
 }
 export function compareRecommendations(a:any,b:any){
  const value=(v:any)=>typeof v==='number'&&Number.isFinite(v)?v:-Infinity;

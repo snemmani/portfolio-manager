@@ -79,7 +79,7 @@ export default function RecommendationsView({ data, portfolio, setSelected, show
             {rows.map((card: any) => (
               <article key={card.id} className="rounded-md border border-line bg-panel">
                 <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2">
-                  <SignalBadge action={actionLabel(card.action)} />
+                  <SignalBadge action={actionLabel(card.action)} label={card.action==='Review'?card.holding?.purchaseStep?.label:undefined} title={card.holding?.purchaseStep?.reason}/>
                   <button onClick={() => setSelected(card.holding)} className="font-mono text-sm font-semibold hover:text-brand">
                     {symbol(card.ticker)}
                   </button>
@@ -108,7 +108,7 @@ export default function RecommendationsView({ data, portfolio, setSelected, show
                   </div>
                 </div>
                 <footer className="flex gap-4 border-t border-line px-3 py-2 text-xs">
-                  <button onClick={() => showExecution(card.ticker, card.portfolio, undefined, !card.nonDiscretionary)} className="inline-flex items-center gap-1 text-brand hover:underline">
+                  <button onClick={() => showExecution(card.ticker, card.portfolio, undefined, !card.nonDiscretionary, card.action==='Profit review'?'profit':undefined)} className="inline-flex items-center gap-1 text-brand hover:underline">
                     <TrendingUp className="size-3.5" /> Full price plan
                   </button>
                   <button onClick={() => setSelected(card.holding)} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
@@ -122,7 +122,7 @@ export default function RecommendationsView({ data, portfolio, setSelected, show
           <Panel>
             <Empty>
               {group === 'decide'
-                ? 'Nothing needs a decision: no concentration above 17%, no serious red flag and no over-extended profit trim.'
+                ? 'Nothing needs a decision: no concentration above 17%, no serious red flag and no triggered profit review.'
                 : 'No holding is failing a mandatory check.'}
             </Empty>
           </Panel>
@@ -155,7 +155,7 @@ export default function RecommendationsView({ data, portfolio, setSelected, show
                       <td className="px-3">
                         <span className="flex items-center gap-2">
                           <span className="font-mono font-semibold">{symbol(c.ticker)}</span>
-                          <SignalBadge action={actionLabel(c.action)} />
+                          <SignalBadge action={actionLabel(c.action)} label={c.action==='Review'?c.holding?.purchaseStep?.label:undefined} title={c.holding?.purchaseStep?.reason}/>
                         </span>
                       </td>
                       <td className="hidden px-2 text-muted-foreground md:table-cell">{c.portfolio}</td>

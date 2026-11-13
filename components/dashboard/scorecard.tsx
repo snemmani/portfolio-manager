@@ -1,4 +1,8 @@
 'use client';
+import ReturnPotential from '../return-potential';
+import {fundamentalCheck,FUNDAMENTAL_POLICY} from '../../lib/fundamental-policy';
+import {businessModel} from '../../lib/business-model';
+import {hasUsableBuyCeiling} from '../../lib/buy-ceiling';
 
 import { Check, X, HelpCircle, Minus, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -57,15 +61,18 @@ export function ImpliedGrowth({ reverse }: { reverse: any }) {
 }
 
 /** Full checklist with details, warnings, valuation band and reverse DCF (holding drawer). */
-export function JarvisScorecard({ scorecard, price, currency, research }: { scorecard: any; price?: number | null; currency?: string; research?: any }) {
+export function JarvisScorecard({ scorecard, price, currency, research, researchContext }: { scorecard: any; price?: number | null; currency?: string; research?: any; researchContext?: any }) {
   if (!scorecard?.gates?.length)
-    return <p className="rounded-md border border-line bg-panel p-3 text-xs text-muted-foreground">Multi-year statements are not available yet, so the Jarvis gates cannot be checked.</p>;
-  const gates: Gate[] = [...scorecard.gates, ...(research?.gates || []).filter((g: Gate) => g.id === 'marginOfSafety')];
+    return <p className="rounded-md border border-line bg-panel p-3 text-xs text-muted-foreground">Multi-year statements are not available yet. Financial checks and an approved buy ceiling are unavailable; no purchase is approved.</p>;
+  const ticker=research?.ticker||'company';
+  const checked=research?fundamentalCheck({...researchContext,fundamentalPolicy:FUNDAMENTAL_POLICY,fundamentalReviews:{[ticker]:research},companyGates:{[ticker]:{currency,intrinsic:scorecard.intrinsic,warningCount:scorecard.warningCount||0,financial:scorecard.businessModel?.lender===true,businessModel:scorecard.businessModel||businessModel({ticker})}}},ticker,price,scorecard.metrics?.latestPeriod):null;
+  const gates: Gate[] = [...scorecard.gates, ...(checked?.gates || []).filter((g: Gate) => ['marginOfSafety','expectedReturn'].includes(g.id))];
   const warnings: Warning[] = (scorecard.warnings || []).filter((w: Warning) => w.weight);
   const notes: Warning[] = (scorecard.warnings || []).filter((w: Warning) => !w.weight);
   const m = scorecard.metrics || {};
   const fmt = (v: any, suffix = '') => (Number.isFinite(v) ? `${Math.round(v * 10) / 10}${suffix}` : '—');
-  const verdict = scorecard.status === 'eligible' ? ['Mandatory checks pass', 'border-gain/40 bg-gain-soft text-gain'] : scorecard.status === 'rejected' ? ['A mandatory check fails', 'border-loss/40 bg-loss-soft text-loss'] : ['Evidence or conviction is short', 'border-warn/40 bg-warn-soft text-warn'];
+  const deferred=scorecard.gates.some((g:any)=>g.status==='deferred');
+  const verdict = scorecard.status === 'eligible' ? [deferred?'Initial screen passed — research checks pending':'Initial financial screen passed', 'border-gain/40 bg-gain-soft text-gain'] : scorecard.status === 'rejected' ? ['A mandatory check fails', 'border-loss/40 bg-loss-soft text-loss'] : ['Evidence or conviction is short', 'border-warn/40 bg-warn-soft text-warn'];
   return (
     <div className="grid gap-3 text-sm">
       <div className={cn('rounded-md border px-3 py-2', verdict[1])}>
@@ -112,7 +119,8 @@ export function JarvisScorecard({ scorecard, price, currency, research }: { scor
         </ul>
       )}
 
-      <ValuationBand price={price} currency={currency} scorecard={scorecard} maxEntry={research?.valuation?.maxEntry} />
+      <ReturnPotential value={checked?.returnPotential} currency={currency} />
+      <ValuationBand price={price} currency={currency} scorecard={scorecard} maxEntry={checked?.valuation?.maxEntry} enforcedCeiling={hasUsableBuyCeiling(checked)?checked?.valuation?.ceiling:null} returnCeiling={checked?.valuation?.returnCeiling} missingReason={checked?.reason||'A current, source-backed company review and maximum entry price are required.'} />
       <ReverseDcfBlock reverse={scorecard.reverseDcf} />
 
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-line bg-line sm:grid-cols-4 [&>div]:bg-panel [&>div]:px-3 [&>div]:py-2">
@@ -178,33 +186,37 @@ function ReverseDcfBlock({ reverse }: { reverse: any }) {
 }
 
 /** Price against the code valuation and the researched maximum entry. */
-function ValuationBand({ price, currency, scorecard, maxEntry }: { price?: number | null; currency?: string; scorecard: any; maxEntry?: number | null }) {
+function ValuationBand({ price, currency, scorecard, maxEntry, missingReason, enforcedCeiling, returnCeiling }: { price?: number | null; currency?: string; scorecard: any; maxEntry?: number | null;missingReason?:string;enforcedCeiling?:number|null;returnCeiling?:number|null }) {
   const value = scorecard?.intrinsic?.value;
   const research = Number.isFinite(maxEntry) && (maxEntry as number) > 0 ? (maxEntry as number) : null;
   const points = (
     [
       { key: 'Code value', v: value, dot: 'bg-brand' },
       { key: 'Research max entry', v: research, dot: 'bg-info' },
+      { key: '15% return entry ceiling', v: returnCeiling, dot: 'bg-warn' },
+      { key: 'Enforced buy ceiling', v: enforcedCeiling, dot: 'bg-gain' },
       { key: 'Price', v: price, dot: 'bg-foreground' },
     ] as { key: string; v: any; dot: string }[]
   ).filter((p) => Number.isFinite(p.v));
-  if (points.length < 2) return null;
-  const max = Math.max(...points.map((p) => p.v)) * 1.08;
-  const ceiling = Math.min(...([scorecard?.intrinsic?.binding === false ? null : value, research].filter((v) => Number.isFinite(v)) as number[]));
-  const fmt = (v: number) => (currency === 'USD' ? '$' : '₹') + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
-  const below = Number.isFinite(ceiling) && Number.isFinite(price) && (price as number) <= ceiling;
+  const max = Math.max(1,...points.map((p) => p.v)) * 1.08;
+  const ceiling = typeof enforcedCeiling==='number'&&Number.isFinite(enforcedCeiling)&&enforcedCeiling>0?enforcedCeiling:null;
+  const fmt = (v: number) => (currency === 'USD' ? '$' : '₹') + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const below = ceiling!==null && Number.isFinite(price) && (price as number) <= ceiling;
   return (
     <div className="rounded-md border border-line bg-panel p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <span className={label}>Margin of safety</span>
-        {Number.isFinite(ceiling) && Number.isFinite(price) && (
+        <span className={label}>{ceiling===null?'Valuation references — buy ceiling unavailable':'Margin of safety'}</span>
+        {ceiling!==null && Number.isFinite(price) && (
           <span className={cn('text-xs font-semibold', below ? 'text-gain' : 'text-loss')}>
             {below ? `${Math.round((1 - (price as number) / ceiling) * 100)}% below the buy ceiling` : `Needs a ${Math.round((1 - ceiling / (price as number)) * 100)}% fall to reach the buy ceiling`}
           </span>
         )}
       </div>
+      {ceiling===null&&<p className="mb-3 text-xs text-warn"><strong>No approved buy ceiling.</strong> {missingReason} Code value is a formula estimate and cannot approve a purchase on its own.</p>}
+      {scorecard.businessModel&&<p className="mb-2 text-xs text-muted-foreground"><strong>{scorecard.businessModel.label}</strong> · {scorecard.businessModel.model==='lender-pb'?'Lender price-to-book model':scorecard.businessModel.model==='earnings-power'?'Operating earnings-power model':'Sector-specific researched valuation required'}</p>}
+      {!Number.isFinite(value)&&<p className="mb-2 text-xs text-muted-foreground">Code value unavailable. {scorecard.businessModel?.checks||'Comparable valuation inputs are required.'}</p>}
       <div className="relative h-3 rounded-full bg-raised">
-        {Number.isFinite(ceiling) && <span className="absolute inset-y-0 left-0 rounded-full bg-gain/25" style={{ width: `${(ceiling / max) * 100}%` }} />}
+        {ceiling!==null && <span className="absolute inset-y-0 left-0 rounded-full bg-gain/25" style={{ width: `${(ceiling / max) * 100}%` }} />}
         {points.map((p) => (
           <span key={p.key} className={cn('absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-panel', p.dot)} style={{ left: `${(p.v / max) * 100}%` }} title={`${p.key}: ${fmt(p.v)}`} />
         ))}

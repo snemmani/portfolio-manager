@@ -7,6 +7,7 @@ import { useHoldings } from './view-data';
 import type { ViewProps } from './types';
 import { HoldingsGrid } from '../terminal/holdings-grid';
 import { Panel, Segmented } from '../terminal/ui';
+import { actionLabel } from '../../lib/recommendation-order';
 import { inr } from '../terminal/format';
 
 const ORDER = ['Trim', 'Trim review', 'Exit review', 'Profit review', 'Watch', 'Add candidate', 'Hold', 'Locked'];
@@ -31,7 +32,7 @@ export default function HoldingsView({ data, portfolio, setSelected }: ViewProps
       ['Portfolio', 'Ticker', 'Shares', 'Price', 'Currency', 'Value INR', 'Weight %', 'Action', 'Quote time'],
       ...visible
         .filter((h: any) => `${h.ticker} ${h.sector} ${h.portfolio}`.toLowerCase().includes(q))
-        .map((h: any) => [h.portfolio, h.ticker, h.shares, h.price, h.currency, h.value, h.weight, h.action, date(h.quote?.time)]),
+        .map((h: any) => [h.portfolio, h.ticker, h.shares, h.price, h.currency, h.value, h.weight, h.action==='Add candidate'?(h.purchaseStep?.label||'Checking next step…'):actionLabel(h.action), date(h.quote?.time)]),
     ];
     const blob = new Blob([rows.map((r: any[]) => r.map((v) => '"' + String(v ?? '').replaceAll('"', '""') + '"').join(',')).join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -68,7 +69,7 @@ export default function HoldingsView({ data, portfolio, setSelected }: ViewProps
         <Segmented
           value={filter}
           onChange={setFilter}
-          options={[{ value: 'All', label: 'All', count: holdings.length }, ...actions.map((a) => ({ value: a, label: a, count: counts[a] }))]}
+          options={[{ value: 'All', label: 'All', count: holdings.length }, ...actions.map((a) => ({ value: a, label: a==='Add candidate'?'Screened holdings':actionLabel(a), count: counts[a] }))]}
           className="flex-nowrap"
         />
       </div>

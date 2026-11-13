@@ -8,3 +8,15 @@ const old=resource.refresh(true);const oldResolve=resolve;unsubscribe();const ag
 const timed=createResource('/timeout',((_url:any,init:any)=>new Promise((_r,j)=>init.signal.addEventListener('abort',()=>j(Object.assign(Error('Aborted'),{name:'AbortError'}))))) as any);await timed.refresh(true,10);assert.match(timed.getSnapshot().error,/timed out/);assert(!timed.getSnapshot().loading);
 console.log('PASS: client request deduplication, retained data after failure, bounded timeout, unmount cancellation and late-response isolation.');
 let malformed=false;const contract=createResource('/api/portfolio',(async()=>Response.json(malformed?{holdings:[null],portfolios:[]}:{holdings:[],portfolios:[],totals:{}})) as any);await contract.refresh();malformed=true;await contract.refresh(true);assert.deepEqual(contract.getSnapshot().data.holdings,[]);assert.match(contract.getSnapshot().error,/incomplete/);
+// Report changes and completion must invalidate the index and every summary.
+const {apiResource,invalidateFinancialResources}=await import('../lib/client/resource-store');
+const originalFetch=globalThis.fetch;let version=1;
+try{
+ globalThis.fetch=async()=>Response.json({version});
+ const paths=['/api/annual-reports','/api/annual-reports/report1/summary'];
+ const rs=paths.map(apiResource),offs=rs.map(r=>r.subscribe(()=>{}));
+ await Promise.all(rs.map(r=>r.refresh()));version=2;invalidateFinancialResources();
+ await Promise.all(rs.map(r=>r.refresh()));rs.forEach(r=>assert.equal(r.getSnapshot().data.version,2));offs.forEach(off=>off());
+}finally{globalThis.fetch=originalFetch;}
+// An older response already in flight cannot undo report invalidation.
+const race=createResource('/race',fetcher),stop=race.subscribe(()=>{});const before=race.refresh(),beforeResolve=resolve;race.invalidate();resolve(Response.json({value:5}));await race.refresh();beforeResolve(Response.json({value:4}));await before;assert.equal(race.getSnapshot().data.value,5);stop();

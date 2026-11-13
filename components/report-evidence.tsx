@@ -116,8 +116,7 @@ export function CrossCheckSummary({ financials, statements }: { financials: any[
         <ul className="grid gap-0.5 font-mono">
           {bad.map((r) => (
             <li key={r.metric + r.period}>
-              {r.label} {fy(r.period)}: report {money(r.report, cc.currency)}, Yahoo {money(r.yahoo, cc.currency)} ({r.diffPct! > 0 ? '+' : ''}
-              {r.diffPct}%)
+              {r.label} {fy(r.period)}: report {money(r.report, cc.currency)}, Yahoo {money(r.yahoo, cc.currency)} ({r.diffPct === null ? 'audited figure is zero' : `${r.diffPct > 0 ? '+' : ''}${r.diffPct}%`})
             </li>
           ))}
         </ul>

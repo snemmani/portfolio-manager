@@ -38,7 +38,7 @@ export default function SettingsView() {
       const r = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: config.model, enabled: config.enabled, intervalMinutes: 120 }),
+        body: JSON.stringify({ model: config.model, enabled: config.enabled, intervalMinutes: 60 }),
       });
       const d: any = await r.json();
       if (!r.ok) throw Error(d.error);
@@ -115,7 +115,7 @@ export default function SettingsView() {
               <div className="flex-1">
                 <div className="text-sm font-semibold">Automatic company research</div>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  Weekdays at 9:15, 11:15, 13:15 and 15:15 IST. Buy and trim calculations run independently every 15 minutes; manual research is always available.
+                  Weekdays hourly from 9:15 AM through 3:15 PM IST (seven slots). Buy and trim calculations run independently every 15 minutes; manual research is always available.
                 </p>
                 <p className="mt-1.5 font-mono text-[11px]">
                   {!config.enabled ? (

@@ -1,0 +1,26 @@
+{
+  "version": "business-models-v1",
+  "overrides": {
+    "BSE.NS": "exchange", "MCX.NS": "exchange", "IEX.NS": "exchange", "CME": "exchange", "ICE": "exchange", "NDAQ": "exchange", "CBOE": "exchange",
+    "CDSL.NS": "financial-infrastructure", "NSDL.NS": "financial-infrastructure", "CAMS.NS": "financial-infrastructure", "KFINTECH.NS": "financial-infrastructure",
+    "ICICIAMC.NS": "asset-manager", "NAM-INDIA.NS": "asset-manager", "HDFCAMC.NS": "asset-manager", "ABSLAMC.NS": "asset-manager", "UTIAMC.NS": "asset-manager",
+    "AXISBANK.NS": "bank", "HDFCBANK.NS": "bank", "ICICIBANK.NS": "bank", "SBIN.NS": "bank", "NTRS": "bank", "STT": "bank", "BNY": "bank",
+    "CANFINHOME.NS": "lender", "PFC.NS": "lender", "ARCC": "investment-vehicle", "HTGC": "investment-vehicle",
+    "ICICIGI.NS": "insurer", "CRBG": "insurer", "PFG": "insurer",
+    "ABCAPITAL.NS": "diversified-financial", "JIOFIN.NS": "diversified-financial", "BN": "diversified-financial", "BRK-A": "diversified-financial", "BRK-B": "diversified-financial",
+    "ARSSBL.NS": "broker", "RJF": "broker", "GS": "broker", "MS": "broker",
+    "ETY": "investment-vehicle", "GDV": "investment-vehicle", "RVT": "investment-vehicle", "TATAINVEST.NS": "investment-vehicle", "JSWHL.NS": "investment-vehicle", "MAHSCOOTER.NS": "investment-vehicle",
+    "V": "payments", "MA": "payments", "PYPL": "payments", "UPST": "diversified-financial", "VLYPO": "unclassified-financial", "VLYPP": "unclassified-financial"
+  },
+  "industryRules": [
+    ["^Banks?\\s*-", "bank"],
+    ["^(Mortgage Finance|Credit Services)$", "lender"],
+    ["^Insurance Brokers$", "insurance-broker"],
+    ["^Insurance\\s*-", "insurer"],
+    ["^Asset Management$", "asset-manager"],
+    ["^Financial Data & Stock Exchanges$", "exchange"],
+    ["^Capital Markets$", "broker"],
+    ["^Financial Conglomerates$", "diversified-financial"],
+    ["^Shell Companies$", "investment-vehicle"]
+  ]
+}

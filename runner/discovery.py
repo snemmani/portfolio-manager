@@ -3,6 +3,7 @@ import sys,json,time,math,re,logging,concurrent.futures,warnings,sqlite3,os
 from datetime import datetime,timezone
 from pathlib import Path
 import yfinance as yf
+from business_model import business_kind
 from jarvis_screening import _build_sector_aware_queries,_is_us_common_stock,_assess_forward_risk,_parse_analyst_rating
 warnings.filterwarnings('ignore',category=FutureWarning)
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -161,7 +162,9 @@ def enrich(item):
    v=number(info.get(k,q.get(k)))
    if v is not None:return v
   return None
- financial=(info.get('sector') or q.get('sector'))=='Financial Services'
+ provider_sector=info.get('sector') or q.get('sector') or ''
+ kind=business_kind(ticker,info.get('industry') or q.get('industry') or '',provider_sector)
+ financial=provider_sector=='Financial Services'
  series=[]
  try:
   income,cashflow,balance=obj.income_stmt,obj.cashflow,obj.balance_sheet
@@ -171,7 +174,7 @@ def enrich(item):
  if evidence.get('error'):gaps.append(evidence['error'])
  metrics={**annual,'eps_ttm':get('trailingEps','epsTrailingTwelveMonths'),'eps_forward':get('forwardEps','epsForward'),'pe_ttm':get('trailingPE'),'pe_forward':get('forwardPE'),'pb':get('priceToBook'),'peg':get('trailingPegRatio','pegRatio'),'marketCap':get('marketCap'),'analystRating':_parse_analyst_rating(info.get('averageAnalystRating',q.get('averageAnalystRating'))),'financialCurrency':info.get('financialCurrency',q.get('financialCurrency'))}
  td={**metrics,'forensic_flags':[]};gate=_assess_forward_risk(ticker,{**q,**info},td,[])
- if financial and gate['status']=='eligible':gate['status']='watchlist';gate['all_reasons'].append('Banking/insurance asset-quality and capital checks are not available; manual review is required.')
+ if kind in ['bank','lender','insurer','broker','investment-vehicle','diversified-financial','unclassified-financial'] and gate['status']=='eligible':gate['status']='watchlist';gate['all_reasons'].append('Sector-specific accounting, capital and valuation checks require company research; the initial screen is not a purchase approval.')
  missing=[key for key in ['revenue_growth_yoy','earnings_growth_yoy','eps_ttm','eps_forward','cash_conversion_ratio'] if metrics.get(key) is None]
  if missing:
   if gate['status']=='eligible':gate['status']='watchlist'

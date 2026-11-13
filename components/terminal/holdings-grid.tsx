@@ -1,4 +1,5 @@
 'use client';
+import {holdingReturnPct} from '../../lib/portfolio-values';
 
 import { useMemo, useState } from 'react';
 import {
@@ -25,7 +26,7 @@ declare module '@tanstack/react-table' {
 
 type H = any;
 const col = createColumnHelper<H>();
-const returnPct = (h: H) => (h.invested ? ((h.unrealised || 0) / h.invested) * 100 : null);
+const returnPct = (h: H) => (holdingReturnPct(h));
 
 /** Dense, sortable holdings grid. Columns drop away by breakpoint; phones get stacked rows. */
 export function HoldingsGrid({
@@ -80,7 +81,7 @@ export function HoldingsGrid({
         meta: { num: true },
       }),
       col.accessor('weight', { header: 'Weight', cell: (c) => <WeightBar weight={c.getValue()} />, meta: { num: true } }),
-      col.accessor('action', { header: 'Signal', cell: (c) => <SignalBadge action={c.getValue()} />, meta: { className: 'hidden md:table-cell' } }),
+      col.accessor('action', { header: 'Next step', cell: (c) => <SignalBadge action={c.getValue()} label={c.getValue()==='Add candidate'?c.row.original.purchaseStep?.label:undefined} title={c.row.original.purchaseStep?.reason}/>, meta: { className: 'hidden md:table-cell' } }),
       col.display({ id: 'gates', header: 'Gates', cell: ({ row: { original: h } }) => <GateGlyphs scorecard={h.scorecard} />, meta: { className: 'hidden md:table-cell' } }),
       col.accessor((h) => (h.scorecard?.intrinsic?.value ? h.price / h.scorecard.intrinsic.value : null), {
         id: 'valuePct',
@@ -95,7 +96,7 @@ export function HoldingsGrid({
   );
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q ? holdings.filter((h) => `${h.ticker} ${h.sector} ${h.portfolio} ${h.action}`.toLowerCase().includes(q)) : holdings;
+    return q ? holdings.filter((h) => `${h.ticker} ${h.sector} ${h.portfolio} ${h.action} ${h.purchaseStep?.label||''}`.toLowerCase().includes(q)) : holdings;
   }, [holdings, search]);
   const table = useReactTable({
     data: filtered,
@@ -181,7 +182,7 @@ export function HoldingsGrid({
               <span className="text-right font-mono tabular-nums">{inr(h.value)}</span>
               <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                 <span className="truncate">{h.portfolio}</span>
-                <SignalBadge action={h.action} />
+                <SignalBadge action={h.action} label={h.action==='Add candidate'?h.purchaseStep?.label:undefined} title={h.purchaseStep?.reason}/>
                 <GateGlyphs scorecard={h.scorecard} />
               </span>
               <span className={cn('text-right font-mono text-xs tabular-nums', tone(returnPct(h)))}>

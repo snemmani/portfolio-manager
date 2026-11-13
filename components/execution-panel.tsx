@@ -1,4 +1,5 @@
 'use client';
+import ReturnPotential from './return-potential';
 
 import SaleImpact from './sale-impact';
 import { formatIST } from '../lib/time';
@@ -13,8 +14,8 @@ const H = 'mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted
 const chip = (ok: boolean) => cn('inline-flex h-5 items-center rounded-sm border px-1.5 text-[11px] font-semibold', ok ? 'border-gain/30 bg-gain-soft text-gain' : 'border-warn/30 bg-warn-soft text-warn');
 
 /** Technical price plan: limit, size, zone and invalidation from daily and 5-minute candles. Nothing is sent to a broker. */
-export default function ExecutionPanel({ target, onClose }: { target: { ticker: string; portfolio?: string; budget?: string; allowExit?: boolean }; onClose: () => void }) {
-  const [intent, setIntent] = useState('recommended');
+export default function ExecutionPanel({ target, onClose }: { target: { ticker: string; portfolio?: string; budget?: string; allowExit?: boolean; intent?: 'profit' }; onClose: () => void }) {
+  const [intent, setIntent] = useState(target.intent||'recommended');
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,6 +125,7 @@ export default function ExecutionPanel({ target, onClose }: { target: { ticker: 
             className="h-8 min-w-0 flex-1 rounded-md border border-line bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="recommended">Follow current trade rules</option>
+            {target.intent==='profit'&&<option value="profit">Review profit-taking safeguards</option>}
             {target.allowExit && <option value="exit">My full-exit scenario (held positions only)</option>}
           </select>
           <button disabled={loading} onClick={() => load()} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-3 text-xs hover:bg-hover disabled:opacity-50">
@@ -202,6 +204,7 @@ export default function ExecutionPanel({ target, onClose }: { target: { ticker: 
                 </div>
               )}
 
+              {data.plan?.side==='buy'&&<ReturnPotential value={data.returnPotential} currency={data.technical?.currency}/>}
               <section>
                 <h3 className={H}>Why these prices</h3>
                 <ul className="grid gap-1.5 text-xs leading-relaxed">

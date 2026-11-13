@@ -15,3 +15,14 @@ const changed=campaignWork(first.work,snap,discovery,emptyReviews,[{ticker:faile
 console.log('PASS: persistent nineteen-company worklist, seventeen remaining cases advance in nine bounded batches, restart preservation, no repeat of completed cases, untouched-before-retry fairness, retry limit and new-evidence reset.');
 
 const resetSource=campaignWork(first.work,snap,discovery,{},[{ticker:failed.ticker,id:'another',sha256:'another',period:'2026-03-31'}],context);const reopened=resetSource.work.find((w:any)=>w.ticker===failed.ticker)!;assert(reopened.totalAttempts>=1);assert.equal(reopened.attempts,0,'New evidence resets the retry limit without erasing earlier work history.');
+// The public preview includes due retries in exactly the order used to claim work.
+const {campaignSummary,campaignQueue}=await import('../lib/research-campaigns');
+const queueNow=Date.now(),work=[
+ {ticker:'RETRY',state:'failed',attempts:1,totalAttempts:1,lastAttemptAt:new Date(queueNow-86400001).toISOString()},
+ {ticker:'WAIT',state:'needs_evidence',attempts:1,totalAttempts:1,lastAttemptAt:new Date(queueNow-1000).toISOString()},
+ {ticker:'LIMIT',state:'failed',attempts:3,totalAttempts:3,lastAttemptAt:new Date(queueNow-86400001).toISOString()},
+ {ticker:'NEW',state:'pending',attempts:0,totalAttempts:0,researchScore:22,rankReason:'Cash conversion 1.5×'},
+];
+const preview=campaignSummary({id:'test',work_json:JSON.stringify(work),enabled:1});
+assert.deepEqual(preview.next,['NEW','RETRY']);assert.deepEqual(preview.queue.map((w:any)=>w.ticker),campaignQueue(work,queueNow).map((w:any)=>w.ticker));
+assert.match(preview.queue[0].reason,/Untouched.*Cash conversion/);assert.match(preview.queue[1].reason,/24-hour/);

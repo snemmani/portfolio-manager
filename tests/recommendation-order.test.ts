@@ -7,7 +7,7 @@ assert.equal(actionPriority('Trim review'),1);assert.equal(actionPriority('Add c
 const ties=[{action:'trim',value:null,ticker:'Z',portfolio:'A'},{action:'Trim',value:100,ticker:'B',portfolio:'B'},{action:'Trim',value:100,ticker:'A',portfolio:'B'},{action:'Trim',value:100,ticker:'A',portfolio:'A'},{action:'Trim',value:500,ticker:'C',portfolio:'A'}].sort(compareRecommendations);
 assert.deepEqual(ties.map(c=>c.ticker+':'+c.portfolio),['C:A','A:A','A:B','B:B','Z:A']);
 const reversed=[...cards].reverse().sort(compareRecommendations);assert.deepEqual(reversed,sorted,'Ordering remains deterministic when feed order changes');
-assert.equal(actionLabel('exit'),'Exit');assert.equal(actionLabel('add'),'Add candidate');
+assert.equal(actionLabel('exit'),'Exit');assert.equal(actionLabel('add'),'Checking next step…');
 assert.equal(discoveryPriority({status:'eligible'},'enter'),0);assert.equal(discoveryPriority({status:'eligible'}),0);assert.equal(discoveryPriority({status:'watchlist'},'enter'),1);assert.equal(discoveryPriority({status:'eligible'},'watch'),0);assert.equal(discoveryPriority({status:'rejected'},'enter'),2);
 console.log('PASS: urgent exits across sources, review variants, deterministic value/symbol/portfolio ties, locked last, immutable input and discovery approval order.');
 

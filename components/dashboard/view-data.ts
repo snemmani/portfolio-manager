@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 import { useApi } from '../../lib/client/use-api';
+import {companyGateIndex} from '../../lib/jarvis-gates';
+import {FUNDAMENTAL_POLICY} from '../../lib/fundamental-policy';
 
 export function useHoldings(data: any, portfolio: string) {
   return useMemo(
@@ -48,3 +50,6 @@ export async function queueResearch(ticker?: string, context?: any) {
     window.dispatchEvent(new Event('arthapalana-research-change'));
   }
 }
+
+/** Reuse the shell/drawer metadata resource for current holding purchase checks. */
+export function useHoldingReviewPolicy(data:any){const state=useApi('/api/analysis?holdings=1',{interval:60000,timeout:20000});return useMemo(()=>({...(state.error?{}:state.data||{}),rulesBased:true,fundamentalPolicy:FUNDAMENTAL_POLICY,companyGates:companyGateIndex([],data?.holdings||[])}),[state.data,state.error,data]);}

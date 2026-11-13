@@ -1,27 +1,21 @@
+import {businessModel} from './business-model';
+import {quoteFreshness} from './exchange-calendar';
 import {screenScorecard,compactScorecard,type AnnualRow,type Scorecard} from './jarvis-gates';
 export type Row = {Id:number;Ticker:string;Portfolio:string;Date:string;TransactionType:string;NoOfShares:number;CostPerShare:number;CMP?:number;Note?:string};
-export type Quote = {ticker:string;price:number|null;currency:string;time:number|null;previous:number|null;history:{date:string;close:number}[];splits:{date:string;ratio:number}[];error?:string;stale:boolean};
+export type Quote = {ticker:string;price:number|null;currency:string;time:number|null;previous:number|null;history:{date:string;close:number}[];splits:{date:string;ratio:number}[];freshness?:ReturnType<typeof quoteFreshness>;error?:string;stale:boolean};
 export type Fundamentals = {series?:AnnualRow[];statementRate?:number|null;shares?:number|null;date:string|null;currency:string|null;roe:number|null;revenueGrowth:number|null;earningsGrowth:number|null;cashConversion:number|null;debtEquity:number|null;fcf:number|null;eps:number|null;bookPerShare:number|null;pe:number|null;pb:number|null;peg:number|null;fresh:boolean;error?:string};
 export const RULES = {single:15,trimTrigger:17,lowConviction:5,meaningful:5,cyclical:25,commodity:20,weakReturn:30,moderateAccounting:20,recentDays:90};
 export const SECTORS:Record<string,string> = Object.fromEntries(Object.entries({Financials:['ABCAPITAL','AXISBANK','BSE','CANFINHOME','HDFCBANK','ICICIAMC','ICICIBANK','ICICIGI','NAM-INDIA','PFC','SBIN'],Technology:['ALLDIGI','HCLTECH','INFY','MASTEK','ORCL','TANLA','TCS'],Consumer:['ASIANPAINT','BRITANNIA','HAVELLS','HINDUNILVR','MARICO','TITAN'],Healthcare:['CAPLIPOINT','NATCOPHARM','VIMTALABS'],Industrials:['AGI','ASHOKLEY','INDUSTOWER','IRCTC','JKTYRE','KIRLPNU','LT','M&M','TMCV','TMPV'],Commodities:['COALINDIA','GAIL','GNFC','GSFC','JINDALSAW','MAHSEAMLES','NMDC','RELIANCE','ULTRACEMCO'],Services:['IEX','INDIAMART']}).flatMap(([s,ts])=>ts.map(t=>[t,s])));
 const num=(v:any)=>Number.isFinite(Number(v))?Number(v):0;
 const india=(t:string)=>/\.(NS|BO)$/.test(t);
-export function isStale(time:number|null,now=Date.now(),currency='INR'){
- if(!Number.isFinite(time)||!time||time*1000>now+60000)return true;
- // Compare with latest expected session, with a 30-minute delayed-feed allowance.
- const offset=currency==='INR'?330:0,close=currency==='INR'?930:1260;
- const local=new Date(now+offset*60000);let day=Date.UTC(local.getUTCFullYear(),local.getUTCMonth(),local.getUTCDate());
- if(local.getUTCHours()*60+local.getUTCMinutes()<close+30)day-=86400000;
- while([0,6].includes(new Date(day).getUTCDay()))day-=86400000;
- return time*1000 < day-offset*60000;
-}
+export function isStale(time:number|null,now=Date.now(),currency='INR'){return quoteFreshness(time,now,currency).stale;}
 export function ledger(rows:Row[],quotes:Record<string,Quote>,fx:number|null){
  const portfolios:Record<string,any>={},warnings:string[]=[],tradeHistory:any[]=[];
  for(const r of [...rows].sort((a,b)=>(a.Date||'').localeCompare(b.Date||'')||a.Id-b.Id)){
  const portfolio=r.Portfolio?.trim()||'Default',ticker=r.Ticker?.trim().toUpperCase();if(!ticker)continue;
  const p=portfolios[portfolio]??=( {name:portfolio,cash:0,positions:{},holdings:[],realised:0,invested:0,equity:0,value:0,unpriced:0,warnings:[]} );
  const n=num(r.NoOfShares),cost=num(r.CostPerShare),type=r.TransactionType;
- if(ticker==='CASH'){if((r.CostPerShare===null||r.CostPerShare===undefined||!Number.isFinite(Number(r.CostPerShare)))||cost<0||!Number.isFinite(Number(r.NoOfShares))||n<0||!['Deposit','Withdraw'].includes(type)){p.invalidLedger=true;warnings.push(`${portfolio}: invalid cash entry in row ${r.Id}. Reconcile before trading.`);continue;}p.cash+=(type==='Deposit'?1:type==='Withdraw'?-1:0)*(n||1)*cost;continue;}
+ if(ticker==='CASH'){if(!Number.isFinite(Date.parse(r.Date))||(/^\d{4}-\d{2}-\d{2}$/.test(r.Date)?r.Date>new Date(Date.now()+330*60000).toISOString().slice(0,10):Date.parse(r.Date)>Date.now())||(r.CostPerShare===null||r.CostPerShare===undefined||!Number.isFinite(Number(r.CostPerShare)))||cost<0||!Number.isFinite(Number(r.NoOfShares))||n<0||!['Deposit','Withdraw'].includes(type)){p.invalidLedger=true;warnings.push(`${portfolio}: invalid cash entry in row ${r.Id}. Reconcile before trading.`);continue;}p.cash+=(type==='Deposit'?1:type==='Withdraw'?-1:0)*(n||1)*cost;if(type==='Deposit'&&(n||1)*cost>0&&(!p.lastDepositAt||Date.parse(r.Date)>Date.parse(p.lastDepositAt)))p.lastDepositAt=new Date(Date.parse(r.Date)).toISOString();continue;}
  if(!Number.isFinite(Number(r.NoOfShares))||n<=0){p.invalidLedger=true;warnings.push(`${portfolio}: invalid quantity in row ${r.Id}`);continue;}
  const pos=p.positions[ticker]??={ticker,portfolio,lots:[],realised:0,notes:[],invalid:false,sellDates:[],historyKey:"",boughtAfterSale:false};
  if(r.Note)pos.notes.push({date:r.Date,note:r.Note,type});
@@ -56,7 +50,7 @@ export function ledger(rows:Row[],quotes:Record<string,Quote>,fx:number|null){
  }
  // A portfolio holding only locked plans (the ORCL employee plan) cannot be acted on here, so it is
  // left out of every list, total and household weight. Its ledger is untouched.
- const lockedOnly=(p:any)=>p.holdings.length>0&&p.holdings.every((h:any)=>h.nonDiscretionary)&&!(p.cash>0);
+ const lockedOnly=(p:any)=>p.holdings.length>0&&p.holdings.every((h:any)=>h.nonDiscretionary);
  const hiddenPortfolios=Object.values(portfolios).filter(lockedOnly).map((p:any)=>({name:p.name,value:p.value,holdings:p.holdings.map((h:any)=>h.ticker)}));
  for(const hp of hiddenPortfolios)delete portfolios[hp.name];
  const hiddenNames=new Set(hiddenPortfolios.map(p=>p.name));
@@ -69,7 +63,7 @@ export function ledger(rows:Row[],quotes:Record<string,Quote>,fx:number|null){
 const pct=(n:number|null)=>n===null?'unavailable':`${n.toFixed(1)}%`;
 export function assess(h:any,p:any,f:Fundamentals|undefined){
  let action='Hold',reason:string[]=[],risk:string[]=[],quantity:number|null=null,amount:number|null=null,confidence='Limited',accounting='Not assessed',category='Unclassified';
- const bank=h.sector==='Financials';
+ const model=businessModel(h),bank=model.lender||model.specialist;
  const financials=f&&f.fresh&&f.roe!==null&&f.revenueGrowth!==null&&f.earningsGrowth!==null;
  const tradable=!!h.price&&!h.quote?.stale&&!h.invalid&&p.complete&&h.fx!==null;
  const full=financials&&(bank?f.pb!==null:f.pe!==null&&f.cashConversion!==null&&f.debtEquity!==null&&f.fcf!==null);
@@ -91,7 +85,7 @@ export function assess(h:any,p:any,f:Fundamentals|undefined){
  else{reason.push(h.recent?'These shares were bought recently. Review the holding after the next results.':'There is no confirmed reason to sell or buy more at present. Keep monitoring the company.');}
  }
  if(f?.roe!==null&&f?.roe!==undefined&&f.roe>15&&f.fcf!==null&&f.fcf>0&&category==='Unclassified')category='Quality watchlist';
- if(bank)risk.push('Bank/NBFC/insurance ratios differ. NPA, NIM, CAR, asset quality and underwriting checks are not available; no automated buy is approved.');
+ if(bank)risk.push('Lender ratios require sector context. Capital adequacy, credit quality, provisioning and funding evidence are assessed in the current company review.');
  if(f?.debtEquity!==null&&f?.debtEquity!==undefined&&f.debtEquity>1)risk.push(`Debt/equity is ${f.debtEquity.toFixed(2)}; leverage needs sector context.`);
  if(h.aggregateWeight>15)risk.push(`Combined household exposure to ${h.ticker} is ${pct(h.aggregateWeight)}, including duplicate holdings.`);
  risk.push('Competitive advantages, management quality, recent news and five-year financial trends have not been fully reviewed. Future returns are uncertain.');
@@ -101,7 +95,7 @@ export function assess(h:any,p:any,f:Fundamentals|undefined){
 /** Jarvis scorecard for a held company, from the same gates used for new candidates. */
 export function holdingScorecard(h:any,f:Fundamentals):Scorecard{
  const shares=Number.isFinite(f.shares)&&f.shares!>0?f.shares!:null,price=Number.isFinite(h.price)&&h.price>0?h.price:null;
- return screenScorecard({ticker:h.ticker,market:h.currency==='USD'?'US':'IN',financial:h.sector==='Financials',price,currency:h.currency,financialCurrency:f.currency,statementRate:f.statementRate??null,series:f.series,sharesOutstanding:shares,marketCap:shares&&price?shares*price:null});
+ return screenScorecard({ticker:h.ticker,market:h.currency==='USD'?'US':'IN',financial:h.sector==='Financials',industry:h.industry,sector:h.sector,price,currency:h.currency,financialCurrency:f.currency,statementRate:f.statementRate??null,series:f.series,sharesOutstanding:shares,marketCap:shares&&price?shares*price:null});
 }
 /**
  * Long-term holding decision. A mandatory failure stops additions; it only suggests an
@@ -119,8 +113,8 @@ export function holdingDecision(h:any,sc:Scorecard,reason:string[],risk:string[]
  else if(unknown.length){action='Review';reason.push(...unknown.map(g=>`${g.label}: ${g.detail}`));}
  else if(sc.warningCount>=3){reason.push(`Mandatory checks pass, but ${sc.warningCount} warnings are too many to add more.`);}
  else if(h.weight>RULES.single){reason.push(`Position is ${h.weight.toFixed(1)}%: above the 15% cap but inside the ${RULES.trimTrigger}% trim band. No additions.`);}
- else if(h.weight<10){action='Add candidate';reason.push(`All mandatory financial checks pass${sc.warningCount?` with ${sc.warningCount} warning${sc.warningCount===1?'':'s'}`:''}.`);}
- else reason.push('All mandatory financial checks pass. The position is already near its 10% addition target.');
+ else if(h.weight<10){action='Add candidate';reason.push(sc.gates.some(g=>g.status==='deferred')?'Initial numerical screen passed. Sector evidence, the forward return hurdle and the enforced buy ceiling are checked against the current company review before adding.':`Initial financial screen passed${sc.warningCount?` with ${sc.warningCount} warning${sc.warningCount===1?'':'s'}`:''}. The current company case, forward return hurdle and enforced buy ceiling must also support adding.`);}
+ else reason.push('Initial numerical screen passed. The position is already near its 10% addition target; research and valuation checks still apply.');
  if(action!=='Exit review')for(const w of warnings.slice(0,3))risk.push(`${w.label}: ${w.detail}`);
  return {action,confidence:'Jarvis gates',accounting,category};
 }

@@ -31,7 +31,7 @@ export function eventSafety(event:any,ack?:string,now=Date.now(),review?:any){
 }
 /** Only a still-valid company case can account for routine results already analysed. */
 export function eventSafetyFor(discovery:any,ticker:string,now=Date.now()){
- const investment=fundamentalCheck(discovery,ticker,undefined,undefined,now);
+ const investment=fundamentalCheck(discovery,ticker,undefined,undefined,now,'business');
  return eventSafety(discovery?.events?.[ticker],discovery?.eventAcks?.[ticker],now,investment.clear?investment.review:null);
 }
 export function ruleIdeas(portfolios:any[],discovery:any){

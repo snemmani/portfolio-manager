@@ -14,6 +14,8 @@ import DiscoveryCoverage from '../discovery-coverage';
 import InlineTradePlan from '../inline-trade-plan';
 import { allocationExplanations } from '../../lib/allocation-explanations';
 import { planDiscovery } from '../../lib/discovery';
+import {shortlistCheck} from '../../lib/fundamental-policy';
+import {cagrText} from '../return-potential';
 import { candidateReview, discoveryCoverage } from '../../lib/discovery-review';
 import QueueResearchButton from '../research/queue-button';
 import { discoveryPriority } from '../../lib/recommendation-order';
@@ -21,8 +23,8 @@ import { Panel, GateGlyphs, ValuePct, Segmented, Empty } from '../terminal/ui';
 import { inr, px, pct, symbol } from '../terminal/format';
 import { cn } from '@/lib/utils';
 
-type Status = 'eligible' | 'watchlist' | 'rejected';
-type SortKey = 'priority' | 'value' | 'roce' | 'growth' | 'implied' | 'ticker';
+type Status = 'shortlist' | 'eligible' | 'watchlist' | 'rejected' | 'reviewed';
+type SortKey = 'priority' | 'value' | 'roce' | 'growth' | 'implied' | 'cagr3' | 'cagr5' | 'ticker';
 const PAGE = 50;
 
 const field = 'h-8 rounded-md border border-line bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -31,7 +33,7 @@ const label = 'grid gap-1 text-[11px] font-medium uppercase tracking-[0.08em] te
 export default function DeployView({ data, portfolio, showExecution }: ViewProps) {
   const [budget, setBudget] = useState('');
   const [market, setMarket] = useState('India');
-  const [status, setStatus] = useState<Status>('eligible');
+  const [status, setStatus] = useState<Status>('shortlist');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'priority', desc: false });
   const [shown, setShown] = useState(PAGE);
@@ -99,25 +101,25 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
     () =>
       (discovery?.candidates || [])
         .filter((c: any) => c.market === (market === 'India' ? 'IN' : 'US'))
-        .map((c: any) => ({
-          ...c,
+        .map((c: any) => {const {potential,qualified}=shortlistCheck(discovery,c);return ({
+          ...c,_return:potential,_shortlisted:qualified,
           _rank: discoveryPriority(c, (discoveryData?.ideas || []).find((i: any) => i.ticker === c.ticker && i.portfolio === portfolio)?.decision),
           _value: c.scorecard?.intrinsic?.value ? c.price / c.scorecard.intrinsic.value : null,
-          _roce: c.sector === 'Financials' ? (c.scorecard?.metrics?.roeMedian ?? c.metrics?.roe) : (c.scorecard?.metrics?.roceMedian ?? c.metrics?.roce),
+          _roce: c.scorecard?.businessModel?.lender ? (c.scorecard?.metrics?.roeMedian ?? c.metrics?.roe) : (c.scorecard?.metrics?.roceMedian ?? c.metrics?.roce),
           _growth: c.scorecard?.metrics?.revenueCagr ?? c.metrics?.revenue_growth_yoy,
           _implied: c.scorecard?.reverseDcf?.impliedGrowthPct,
-        })),
+        })}),
     [discovery, discoveryData, market, portfolio],
   );
   const counts = useMemo(() => {
-    const n: Record<Status, number> = { eligible: 0, watchlist: 0, rejected: 0 };
-    for (const c of candidates) n[c.status as Status] = (n[c.status as Status] || 0) + 1;
+    const n: Record<Status, number> = { shortlist:0,eligible: 0, watchlist: 0, rejected: 0, reviewed: 0 };
+    for (const c of candidates) {n[c.status as Status] = (n[c.status as Status] || 0) + 1;if(c._shortlisted)n.shortlist++;if(discovery?.fundamentalReviews?.[c.ticker])n.reviewed++;}
     return n;
   }, [candidates]);
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = candidates.filter((c: any) => c.status === status && (!q || `${c.ticker} ${c.name} ${c.sector}`.toLowerCase().includes(q)));
-    const val = (c: any) => ({ priority: c._rank, value: c._value, roce: c._roce, growth: c._growth, implied: c._implied, ticker: c.ticker })[sort.key];
+    const list = candidates.filter((c: any) => (status==='shortlist'?c._shortlisted:status==='reviewed'?!!discovery?.fundamentalReviews?.[c.ticker]:c.status === status) && (!q || `${c.ticker} ${c.name} ${c.sector}`.toLowerCase().includes(q)));
+    const val = (c: any) => ({ priority: c._rank, value: c._value, roce: c._roce, growth: c._growth, implied: c._implied,cagr3:c._return?.scenarios?.[0]?.cagr,cagr5:c._return?.scenarios?.[1]?.cagr, ticker: c.ticker })[sort.key];
     return list.sort((a: any, b: any) => {
       const x = val(a), y = val(b);
       if (x == null && y == null) return a.ticker.localeCompare(b.ticker);
@@ -129,7 +131,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
   }, [candidates, status, search, sort]);
 
   const buyCoverage = discoveryCoverage(candidates, portfolio, discoveryData?.ideas || [], plan?.allocations || []);
-  const entryWatchCount = candidates.filter((c: any) => ideaFor(c.ticker)?.fundamentalStatus === 'valuation').length;
+  const entryWatchCount = candidates.filter((c: any) => ideaFor(c.ticker)?.fundamentalStatus === 'valuation' || ideaFor(c.ticker)?.fundamentalStatus === 'return').length;
   const head = (key: SortKey, text: string, cls = '') => (
     <th className={cn('px-2 font-semibold', cls)}>
       <button
@@ -206,7 +208,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                   ['Budget', inr(plan.budget), 'sm:col-span-1'],
                   ['Assigned', inr(plan.budget - plan.reserve), ''],
                   ['Reserve', inr(plan.reserve), ''],
-                  ['Eligible', buyCoverage.eligible, ''],
+                  ['Screened', buyCoverage.eligible, ''],
                   ['Reviewed', buyCoverage.reviewed, ''],
                   ['Awaiting research', buyCoverage.pending, ''],
                   ['Approved', buyCoverage.approved, ''],
@@ -302,7 +304,9 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                 value={status}
                 onChange={setStatus}
                 options={[
-                  { value: 'eligible', label: 'Gates pass', count: counts.eligible },
+                  { value:'shortlist',label:'≥15% shortlist',count:counts.shortlist },
+                  { value: 'eligible', label: 'Financial screen', count: counts.eligible },
+                  { value: 'reviewed', label: 'Reviewed', count: counts.reviewed },
                   { value: 'watchlist', label: 'Watchlist', count: counts.watchlist },
                   { value: 'rejected', label: 'Fails a gate', count: counts.rejected },
                 ]}
@@ -312,6 +316,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticker, name, sector…" className="h-7 w-52 rounded-md border border-line bg-background pr-2 pl-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               </label>
             </div>
+            <p className="border-b border-line px-3 py-2 text-xs text-muted-foreground">The shortlist requires a supported company case and at least 15% projected price CAGR over five years. Three years is comparison only. Dividends are excluded; estimates are scenarios, not guarantees. The Financial screen and Reviewed tabs retain companies outside the shortlist.</p>
             {discovery.errors.length > 0 && (
               <details className="border-b border-line px-3 py-2 text-xs text-warn">
                 <summary className="flex cursor-pointer items-center gap-1.5">
@@ -336,6 +341,8 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                     {head('roce', 'ROCE/ROE', 'text-right hidden md:table-cell')}
                     {head('value', 'P / Value', 'text-right')}
                     {head('implied', 'Implied g', 'text-right hidden xl:table-cell')}
+                    {head('cagr3','3y price CAGR','text-right hidden md:table-cell')}
+                    {head('cagr5','5y price CAGR','text-right')}
                     <th className="hidden px-2 font-semibold xl:table-cell">Status</th>
                     <th className="px-3 text-right font-semibold">Price</th>
                   </tr>
@@ -359,7 +366,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                           </td>
                           <td className="max-w-[16rem] py-1 pl-1">
                             <div className="font-mono font-semibold">{symbol(c.ticker)}</div>
-                            <div className="truncate text-[11px] text-muted-foreground">{c.name}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">{c.name}</div>{c.screenRefreshPending&&<span className="text-[11px] text-warn">Financial recheck pending</span>}
                           </td>
                           <td className="hidden px-2 text-xs text-muted-foreground lg:table-cell">
                             {c.sector} <span className="font-mono">· {c.category}</span>
@@ -377,6 +384,8 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                               <ImpliedGrowth reverse={c.scorecard?.reverseDcf} />
                             </span>
                           </td>
+                          <td className="hidden px-2 text-right font-mono md:table-cell">{cagrText(c._return?.scenarios?.[0]?.cagr)}</td>
+                          <td className={'px-2 text-right font-mono '+(c._return?.passes?'text-gain':'text-warn')}>{cagrText(c._return?.scenarios?.[1]?.cagr)}</td>
                           <td className="hidden max-w-[14rem] truncate px-2 text-xs text-muted-foreground xl:table-cell" title={review.reasons[0]}>
                             {review.label}
                           </td>
@@ -384,7 +393,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                         </tr>
                         {isOpen && (
                           <tr className="border-b border-line bg-background">
-                            <td colSpan={10} className="p-3">
+                            <td colSpan={12} className="p-3">
                               <div className="grid gap-3 lg:grid-cols-2">
                                 <div className="grid min-w-0 content-start gap-3">
                                   <div className="text-xs text-muted-foreground sm:hidden">

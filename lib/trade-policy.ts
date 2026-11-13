@@ -1,3 +1,4 @@
+import {formatIST} from './time';
 export const DEFAULT_TRADE_POLICY={profitEnabled:true,gainThresholdPct:25,trimPct:20,cooldownDays:14,reentryPullbackPct:8};
 export type TradePolicy=typeof DEFAULT_TRADE_POLICY;
 const finite=(v:any)=>typeof v==='number'&&Number.isFinite(v);
@@ -25,6 +26,16 @@ export function profitReview(h:any,policy:TradePolicy,now=Date.now(),latched=fal
  const latest=[h.lastBuy,h.lastSell].filter(Boolean).sort((a,b)=>tradeTime(b)-tradeTime(a))[0];const age=latest?now-tradeTime(latest):Infinity;
  return {triggered:policy.profitEnabled&&!h.nonDiscretionary&&!h.invalid&&!h.quote?.stale&&gain!==null&&(gain+1e-8>=policy.gainThresholdPct||(latched&&gain+1e-8>=Math.max(0,policy.gainThresholdPct-5))),gainPct:gain,quantity:partialQuantity(h,policy),threshold:policy.gainThresholdPct,cooldownUntil:age<policy.cooldownDays*86400000&&latest?new Date(tradeTime(latest)+policy.cooldownDays*86400000).toISOString():null};
 }
+/** Display a threshold review independently of the holding's executable trade action. */
+export function decisionAction(h:any){
+ return h.profitReview?.triggered&&['Hold','Watch','Add candidate','Review'].includes(h.action)?'Profit review':h.action;
+}
+export function profitSaleBlockers(profit:any,gate:any){
+ const blockers:string[]=[];
+ if(profit?.cooldownUntil)blockers.push(`Profit-taking sale paused until ${formatIST(profit.cooldownUntil)}: the waiting period after your last recorded trade is still active.`);
+ if(gate?.active)blockers.push('Profit-taking sale paused while the re-entry watch from your last recorded sale remains active. This restriction can outlast the trade cooldown; a later recorded purchase closes the watch, or it expires after 180 days.');
+ return blockers;
+}
 export function reentryGate(h:any,policy:TradePolicy,review?:any,now=Date.now()){
  const saleTime=tradeTime(h.lastSell||''),age=now-saleTime;
  if(!h.lastSell||!Number.isFinite(saleTime))return {active:false,allowed:true,status:'none',reasons:[]};
@@ -48,7 +59,11 @@ export function decorateTrades(snap:any,policy:TradePolicy,reviews:any[]=[]){
  const gate=buyGates[tradeKey(h.portfolio,h.ticker)];let action=h.action;const reasons=[...h.reasons];
  // A recent sale blocks additions until the re-entry conditions pass; the holding itself is fine.
  if(h.action==='Add candidate'&&gate&&!gate.allowed){action='Hold';reasons.unshift('No additions yet — re-entry conditions after your recorded sale:',...gate.reasons);}
- if(profit.triggered&&!gate?.active&&['Hold','Watch','Add candidate'].includes(h.action)){action='Profit review';reasons.unshift(`Your ${policy.gainThresholdPct}% profit-review threshold was reached. The current gain is ${profit.gainPct!.toFixed(1)}%. The review resets below ${Math.max(0,policy.gainThresholdPct-5)}%; a gain alone does not justify selling.`);}
- return {...h,baseAction:h.action,action,reasons,profitReview:{...profit,triggered:profit.triggered&&!gate?.active,approved},buyGate:gate};});
+ const blockers=profitSaleBlockers(profit,gate);
+ if(profit.triggered&&['Hold','Watch','Add candidate','Review'].includes(h.action)){
+  if(!gate?.active&&h.action!=='Review')action='Profit review';
+  reasons.unshift(`Your ${policy.gainThresholdPct}% profit-review threshold was reached. The current gain is ${profit.gainPct!.toFixed(1)}%. The review resets below ${Math.max(0,policy.gainThresholdPct-5)}%; a gain alone does not justify selling.`,...blockers);
+ }
+ return {...h,baseAction:h.action,action,reasons,profitReview:{...profit,blockers,approved},buyGate:gate};});
  return {...snap,holdings,tradePolicy:policy,buyGates,reentries:reentries.sort((a:any,b:any)=>tradeTime(b.lastSell)-tradeTime(a.lastSell)).slice(0,50)};
 }

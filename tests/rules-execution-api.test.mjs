@@ -1,6 +1,7 @@
 import {storedFundamental} from './fundamental-fixture.mjs';
 import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {readFileSync,readdirSync} from 'node:fs';
 import {executionHandler} from '/tmp/arthapalana-execution.mjs';
+import {dashboard} from '/tmp/arthapalana-trades.mjs';
 const sql=new DatabaseSync(':memory:');for(const f of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+f,'utf8'));
 const DB={prepare(s){const make=args=>({bind(...a){return make(a)},async first(){return sql.prepare(s).get(...args)||null},async all(){return {results:sql.prepare(s).all(...args)}},async run(){const r=sql.prepare(s).run(...args);return {meta:{changes:r.changes}}}});return make([])}};
 const env={DB,RULES_BASED_BUYS:'1',NOCODB_TOKEN:'test',CF_ACCESS_CLIENT_ID:'test',CF_ACCESS_CLIENT_SECRET:'test'};let ai=0;const start=Math.floor(Date.now()/1000)-3600;
@@ -13,7 +14,7 @@ const req=()=>new Request('http://localhost/api/execution?ticker=AAA.NS&portfoli
 let r=await executionHandler(req(),env),data=await r.json();assert.equal(r.status,200);assert.equal(data.plan.side,'buy');assert.equal(data.plan.authorized,false);assert.match(data.plan.decisionReason,/company review/);
 const set=e=>sql.prepare("UPDATE market_state SET events_json=? WHERE id='local'").run(JSON.stringify({'AAA.NS':e}));
 set({ok:true,checkedAt:new Date().toISOString(),issues:[],fingerprint:'clear'});data=await(await executionHandler(req(),env)).json();assert.equal(data.plan.authorized,false,'A clear feed and numeric screen cannot replace company research');
-const reviewed=storedFundamental();sql.prepare('INSERT INTO fundamental_reviews(ticker,data_json,researched_at) VALUES(?,?,?)').run(reviewed.ticker,JSON.stringify(reviewed),reviewed.researchedAt);
+const reviewed=storedFundamental('AAA.NS','INR',1e9,(await dashboard(env)).holdings[0].scorecard.intrinsic);sql.prepare('INSERT INTO fundamental_reviews(ticker,data_json,researched_at) VALUES(?,?,?)').run(reviewed.ticker,JSON.stringify(reviewed),reviewed.researchedAt);
 r=await executionHandler(req(),env);data=await r.json();assert.equal(data.plan.authorized,true);assert.equal(data.plan.quantity,5);assert.equal(data.plan.limit,100);assert.equal(data.researchAsOf,null,'Cached company research permits technical updates without another AI run');
 set({ok:true,checkedAt:new Date().toISOString(),issues:['Possible material news: Acquisition announced'],fingerprint:'routine'});data=await(await executionHandler(req(),env)).json();assert.equal(data.plan.authorized,true,'An ordinary headline is a warning, not a pause');
 set({ok:true,checkedAt:new Date().toISOString(),issues:['Possible material news: Forensic audit ordered into accounts'],fingerprint:'new'});data=await(await executionHandler(req(),env)).json();assert.equal(data.plan.authorized,false,'A serious red flag pauses buying');

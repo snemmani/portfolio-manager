@@ -1,4 +1,5 @@
 'use client';
+import {actionLabel} from '../../lib/recommendation-order';
 
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -37,16 +38,17 @@ const SIGNAL: Record<string, string> = {
   'Exit review': 'bg-loss-soft text-loss border-loss/30',
   'Profit review': 'bg-warn-soft text-warn border-warn/30',
   Watch: 'bg-warn-soft text-warn border-warn/30',
-  'Add candidate': 'bg-gain-soft text-gain border-gain/30',
+  'Add candidate': 'bg-warn-soft text-warn border-warn/30',
+  'Screened — review needed': 'bg-warn-soft text-warn border-warn/30',
   Buy: 'bg-gain-soft text-gain border-gain/30',
   Hold: 'bg-info-soft text-info border-info/30',
   Locked: 'bg-raised text-muted-foreground border-line',
   Review: 'bg-raised text-muted-foreground border-line',
 };
-export function SignalBadge({ action, className }: { action: string; className?: string }) {
+export function SignalBadge({ action, label, title, className }: { action: string; label?:string;title?:string;className?: string }) {
   return (
-    <span className={cn('inline-flex h-5 items-center whitespace-nowrap rounded-sm border px-1.5 text-[11px] font-semibold', SIGNAL[action] || 'border-line bg-raised text-muted-foreground', className)}>
-      {action}
+    <span title={title} className={cn('inline-flex min-h-5 max-w-full items-center rounded-sm border px-1.5 py-0.5 text-[11px] font-semibold leading-tight', SIGNAL[action] || 'border-line bg-raised text-muted-foreground', className)}>
+      {label||actionLabel(action)}
     </span>
   );
 }

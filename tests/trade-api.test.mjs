@@ -14,9 +14,10 @@ const request=()=>new Request('http://localhost/api/execution?ticker=AAA.NS&port
 const post=(b,origin='http://localhost')=>tradeHandler(new Request('http://localhost/api/trades',{method:'POST',headers:{Origin:origin},body:JSON.stringify(b)}),env);
 const data=()=>executionHandler(request(),env).then(r=>r.json());
 let d=await data();assert.equal(d.plan.side,'sell');assert.equal(d.plan.authorized,false);assert.equal(d.saleAssessment.impact.grossPnl,70,'One over-extension signal stages a 10% trim');assert.equal(d.saleAssessment.reviewable,false,'No event coverage means no profit approval');
+assert(d.saleAssessment.checks.some(s=>s.includes('Profit-taking approval waits for a fresh check')));assert(d.saleAssessment.checks.some(s=>s.includes('company investment review is required')));assert(!d.saleAssessment.checks.some(s=>s.includes('Buying waits')||s.includes('propose buying')),'Sale blockers must describe profit-taking approval');
 assert.equal((await post({operation:'settings'},'https://evil.example')).status,403);assert.equal((await post({operation:'settings',policy:{gainThresholdPct:Infinity}})).status,400);
 sql.prepare("UPDATE market_state SET events_json=? WHERE id='local'").run(JSON.stringify({'AAA.NS':{ok:true,checkedAt:new Date().toISOString(),issues:[],fingerprint:'clear'}}));
-d=await data();assert(!d.saleAssessment.reviewable,'Profit-taking requires a reviewed business outlook');const company=storedFundamental();sql.prepare('INSERT INTO fundamental_reviews(ticker,data_json,researched_at) VALUES(?,?,?)').run(company.ticker,JSON.stringify(company),company.researchedAt);
+d=await data();assert(!d.saleAssessment.reviewable,'Profit-taking requires a reviewed business outlook');const company=storedFundamental('AAA.NS','INR',1e9,(await dashboard(env)).holdings[0].scorecard.intrinsic);sql.prepare('INSERT INTO fundamental_reviews(ticker,data_json,researched_at) VALUES(?,?,?)').run(company.ticker,JSON.stringify(company),company.researchedAt);
 d=await data();assert(d.saleAssessment.reviewable);assert(!d.plan.authorized);const profitToken=d.saleAssessment.reviewToken;
 assert.equal((await post({operation:'review_profit',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:'wrong'})).status,409);
 assert.equal((await post({operation:'review_profit',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:profitToken})).status,200);
@@ -25,11 +26,24 @@ let policy=(await(await tradeHandler(new Request('http://localhost/api/trades'),
 assert.equal((await post({operation:'settings',policy:{...policy,trimPct:30}})).status,200);d=await data();assert(!d.plan.authorized,'Changing settings invalidates the old approval');
 await post({operation:'settings',policy});
 const sale=(qty,date)=>({Id:3,Ticker:'AAA.NS',Portfolio:'Test',Date:date,TransactionType:'Sell',NoOfShares:qty,CostPerShare:180});
-sales=[sale(2,new Date(Date.now()-86400000).toISOString().slice(0,10))];invalidateDashboard();let snap=await dashboard(env);assert.equal(snap.reentries[0].status,'cooldown');d=await data();assert(!d.plan.authorized);assert.notEqual(snap.holdings[0].action,'Profit review','A confirmed sale suspends another profit review while its re-entry watch is active');
-sales=[sale(2,'2026-09-01')];invalidateDashboard();snap=await dashboard(env);let watch=snap.reentries[0];assert.equal(watch.status,'watch');assert.equal((await post({operation:'review_reentry',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:watch.historyKey})).status,200);
+sales=[sale(2,new Date(Date.now()-86400000).toISOString().slice(0,10))];invalidateDashboard();let snap=await dashboard(env);assert.equal(snap.reentries[0].status,'cooldown');d=await data();assert(!d.plan.authorized);
+assert(snap.holdings[0].profitReview.triggered,'A recorded sale must not hide the threshold review');
+assert(snap.holdings[0].profitReview.blockers.some(s=>s.includes('waiting period')));
+let profit=await(await executionHandler(new Request('http://localhost/api/execution?ticker=AAA.NS&portfolio=Test&intent=profit'),env)).json();
+assert.equal(profit.plan.side,'sell');assert(!profit.plan.authorized&&!profit.plan.canDraft&&!profit.saleAssessment.reviewable);
+assert(profit.saleAssessment.checks.some(s=>s.includes('re-entry watch')));
+assert.equal((await post({operation:'review_profit',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:profit.saleAssessment.reviewToken})).status,409,'Direct approval cannot bypass the cooldown or re-entry watch');
+sales=[sale(2,'2026-09-01')];invalidateDashboard();snap=await dashboard(env);let watch=snap.reentries[0];assert.equal(watch.status,'watch');assert(snap.holdings[0].profitReview.triggered);
+profit=await(await executionHandler(new Request('http://localhost/api/execution?ticker=AAA.NS&portfolio=Test&intent=profit'),env)).json();assert(!profit.saleAssessment.reviewable&&!profit.plan.authorized);assert(profit.saleAssessment.checks.some(s=>s.includes('re-entry watch')),'Expired cooldown does not clear the existing active-watch sale restriction');
+assert.equal((await post({operation:'review_reentry',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:watch.historyKey})).status,200);
 d=await data();assert.equal(d.plan.side,'buy');assert(d.plan.authorized);assert.equal(d.plan.quantity,2,'Re-entry cannot exceed the number of shares sold');
 // A later recorded purchase closes this watch instead of starting repeated alerts.
 laterBuys=[{Id:4,Ticker:'AAA.NS',Portfolio:'Test',Date:'2026-10-01',TransactionType:'Buy',NoOfShares:1,CostPerShare:140}];invalidateDashboard();snap=await dashboard(env);assert.equal(snap.reentries[0].status,'completed');
 // A fully exited holding remains tracked and can qualify from fresh empirical evidence.
 laterBuys=[];sales=[sale(10,'2026-09-01')];invalidateDashboard();snap=await dashboard(env);assert.equal(snap.holdings.length,0);watch=snap.reentries[0];assert(watch.financialPass);await post({operation:'review_reentry',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:watch.historyKey});d=await data();assert.equal(d.plan.side,'buy');assert(d.plan.authorized);assert(d.plan.quantity>0);
-assert.equal(ai,0);console.log('PASS: current FIFO sale estimate, event safeguard, same-origin settings, exact assessment review, approval invalidation, recorded-sale cooldown, partial re-entry share cap, later-buy closure, fully exited re-entry and no AI calls.');
+// A reviewed re-entry and valid technical plan cannot bypass the five-year price hurdle.
+const lowReturn=structuredClone(company);lowReturn.valuation.returnProjection.year3Value=250;lowReturn.valuation.returnProjection.year5Value=200;
+sql.prepare('UPDATE fundamental_reviews SET data_json=? WHERE ticker=?').run(JSON.stringify(lowReturn),company.ticker);
+d=await data();assert.equal(d.plan.side,'buy');assert.equal(d.plan.authorized,false);assert.equal(d.plan.canDraft,false);assert.match(d.plan.decisionReason,/15%/);assert(d.returnPotential.scenarios[0].cagr>.15&&d.returnPotential.scenarios[1].cagr<.15);
+sql.prepare('UPDATE fundamental_reviews SET data_json=? WHERE ticker=?').run(JSON.stringify(company),company.ticker);d=await data();assert(d.plan.authorized,'Restoring a qualifying forecast restores the valid re-entry plan without weakening its other checks');
+assert.equal(ai,0);console.log('PASS: current FIFO sale estimate, event safeguard, same-origin settings, exact assessment review, approval invalidation, recorded-sale cooldown, partial re-entry share cap, later-buy closure, fully exited re-entry, mandatory five-year return enforcement after owner re-entry approval and no AI calls.');

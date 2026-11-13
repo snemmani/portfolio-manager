@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useSyncExternalStore} from 'react';
-import {apiResource,EMPTY_RESOURCE,invalidateResources} from './resource-store';
+import {apiResource,EMPTY_RESOURCE,invalidateResources,invalidateFinancialResources} from './resource-store';
 const serverSnapshot=()=>EMPTY_RESOURCE;const noSubscribe=()=>()=>{};
 export function useApi(path:string,{enabled=true,interval=60000,timeout=45000,staleTime=1000}:{enabled?:boolean;interval?:number|((data:any)=>number);timeout?:number;staleTime?:number}={}){
  const resource=apiResource(path),snapshot=useSyncExternalStore(enabled?resource.subscribe:noSubscribe,resource.getSnapshot,serverSnapshot);
@@ -12,7 +12,7 @@ export function useApi(path:string,{enabled=true,interval=60000,timeout=45000,st
  return {...snapshot,refresh:()=>resource.refresh(true,timeout)};
 }
 if(typeof window!=='undefined'){
- const financial=()=>invalidateResources(['/api/portfolio','/api/discovery','/api/analysis']);
+ const financial=invalidateFinancialResources;
  window.addEventListener('arthapalana-trade-change',financial);window.addEventListener('arthapalana-report-change',financial);
  window.addEventListener('arthapalana-research-change',()=>invalidateResources(['/api/research/status']));
 }

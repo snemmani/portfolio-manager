@@ -20,6 +20,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useApi } from '../../lib/client/use-api';
 import { invalidateResources } from '../../lib/client/resource-store';
+import { withHoldingSteps } from '../../lib/holding-steps';
+import { decisionAction } from '../../lib/trade-policy';
 import { date } from './shared';
 import AppClock from './clock';
 import ThemeSelector from './theme';
@@ -108,13 +110,14 @@ export default function DashboardShell({ initialView = 'Overview' }: { initialVi
   const [executionTarget, setExecutionTarget] = useState<any>(null);
 
   const needsPortfolio = !['Settings', 'Framework', 'AI reviews', 'Annual reports'].includes(view);
-  const snapshot = useApi('/api/portfolio', { enabled: needsPortfolio, interval: 300000 });
-  const data = snapshot.data;
+  const snapshot = useApi('/api/portfolio', { enabled: needsPortfolio, interval: 60000 });
+  const reviewContext=useApi('/api/analysis?holdings=1',{enabled:needsPortfolio,interval:60000,timeout:20000});
+  const data=useMemo(()=>withHoldingSteps(snapshot.data,reviewContext.error?{unavailable:true}:reviewContext.data),[snapshot.data,reviewContext.data,reviewContext.error]);
   const portfolios = data?.portfolios || [];
   const decisions = useMemo(
     () =>
       (data?.holdings || []).filter(
-        (h: any) => (portfolio === 'All portfolios' || h.portfolio === portfolio) && DECISION_ACTIONS.includes(h.action),
+        (h: any) => (portfolio === 'All portfolios' || h.portfolio === portfolio) && DECISION_ACTIONS.includes(decisionAction(h)),
       ).length,
     [data, portfolio],
   );
@@ -163,9 +166,9 @@ export default function DashboardShell({ initialView = 'Overview' }: { initialVi
     setExecutionTarget(null);
     changeUrl(urlView(view), name);
   }
-  const showExecution = (ticker: string, portfolio?: string, budget?: string, allowExit = false) => {
+  const showExecution = (ticker: string, portfolio?: string, budget?: string, allowExit = false, intent?: 'profit') => {
     setSelected(null);
-    setExecutionTarget({ ticker, portfolio, budget, allowExit });
+    setExecutionTarget({ ticker, portfolio, budget, allowExit, intent });
   };
   const refresh = () => {
     if (needsPortfolio) void snapshot.refresh();
@@ -449,7 +452,7 @@ export default function DashboardShell({ initialView = 'Overview' }: { initialVi
       {selected && (
         <ModuleBoundary name="Holding details">
           <Suspense fallback={<ModuleLoading />}>
-            <Drawer selected={selected} setSelected={setSelected} showExecution={showExecution} />
+            <Drawer selected={data?.holdings?.find((h:any)=>h.ticker===selected.ticker&&h.portfolio===selected.portfolio)||selected} setSelected={setSelected} showExecution={showExecution} />
           </Suspense>
         </ModuleBoundary>
       )}

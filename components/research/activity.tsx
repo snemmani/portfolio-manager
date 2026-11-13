@@ -3,7 +3,7 @@ import AutomaticResearch from './automatic';
 import {useEffect,useRef,useState} from 'react';
 import {Clock,RefreshCw,ArrowRight,AlertTriangle,CheckCircle2} from 'lucide-react';
 import {useApi} from '../../lib/client/use-api';
-import {invalidateResources} from '../../lib/client/resource-store';
+import {invalidateFinancialResources} from '../../lib/client/resource-store';
 import {formatIST} from '../../lib/time';
 import {queueResearch} from '../dashboard/view-data';
 const cadence=(d:any)=>['queued','running'].includes(d?.current?.status)?5000:30000;
@@ -11,7 +11,7 @@ export function useResearchStatus(){return useApi('/api/research/status',{interv
 export default function ResearchActivity({detailed=false,pill=false,onOpen}:{detailed?:boolean;pill?:boolean;onOpen?:()=>void}){
  const state=useResearchStatus(),data=state.data,run=data?.current,active=['queued','running'].includes(run?.status),[now,setNow]=useState(Date.now()),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),reportVersion=useRef<string|undefined>(undefined);
  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),active?1000:30000);return()=>clearInterval(timer)},[active]);
- useEffect(()=>{const version=data?.lastReport?.updated_at;if(reportVersion.current&&version&&version!==reportVersion.current)invalidateResources(['/api/analysis','/api/discovery','/api/portfolio']);if(version)reportVersion.current=version},[data?.lastReport?.updated_at]);
+ useEffect(()=>{const version=data?.lastReport?.updated_at;if(reportVersion.current&&version&&version!==reportVersion.current)invalidateFinancialResources();if(version)reportVersion.current=version},[data?.lastReport?.updated_at]);
  const workerFresh=!!data?.runner.online&&(run?.id?!!run.heartbeatAt&&now-Date.parse(run.heartbeatAt)<120000:data?.runner.status==='researching');
  const elapsed=run?.startedAt?Math.max(0,Math.floor(((run.finishedAt?Date.parse(run.finishedAt):now)-Date.parse(run.startedAt))/1000)):null;
  const duration=elapsed===null?(run?.status==='queued'?'Waiting':'Not recorded'):elapsed<60?`${elapsed}s`:`${Math.floor(elapsed/60)}m ${elapsed%60}s`;

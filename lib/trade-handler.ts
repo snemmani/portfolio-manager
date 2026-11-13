@@ -1,10 +1,10 @@
 import {dashboard,invalidateDashboard} from './data';
 import {executionHandler} from './execution';
 import {tradeSettings} from './trade-store';
-import {tradeKey,profitFingerprint,validateTradePolicy} from './trade-policy';
+import {tradeKey,profitFingerprint,validateTradePolicy,decisionAction} from './trade-policy';
 const json=(v:any,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'no-store'}});
 export async function tradeHandler(request:Request,env:any){
- if(request.method==='GET'){const snap=await dashboard(env);return json({policy:await tradeSettings(env),reentries:snap.reentries||[],profitReviews:snap.holdings.filter((h:any)=>h.profitReview?.triggered).map((h:any)=>({portfolio:h.portfolio,ticker:h.ticker,action:h.action,...h.profitReview}))});}
+ if(request.method==='GET'){const snap=await dashboard(env);return json({policy:await tradeSettings(env),reentries:snap.reentries||[],profitReviews:snap.holdings.filter((h:any)=>h.profitReview?.triggered).map((h:any)=>({portfolio:h.portfolio,ticker:h.ticker,action:decisionAction(h),...h.profitReview}))});}
  if(request.method!=='POST')return json({error:'Method not allowed'},405);
  const url=new URL(request.url);if(request.headers.get('Origin')!==url.origin)return json({error:'Invalid origin'},403);
  const raw=await request.text();if(raw.length>5000)return json({error:'Request too large'},413);let b;try{b=JSON.parse(raw)}catch{return json({error:'Invalid JSON'},400)}
@@ -12,8 +12,8 @@ export async function tradeHandler(request:Request,env:any){
  if(!['review_profit','review_reentry'].includes(b.operation)||b.confirmed!==true)return json({error:'An explicit review is required.'},400);
  invalidateDashboard();const snap=await dashboard(env),key=tradeKey(String(b.portfolio),String(b.ticker));let fingerprint,kind;
  if(b.operation==='review_profit'){
-  const h=snap.holdings.find((h:any)=>h.portfolio===b.portfolio&&h.ticker===b.ticker);if(!h||h.action!=='Profit review')return json({error:'There is no current profit-taking review for this holding.'},409);
-  const q=new URLSearchParams({portfolio:h.portfolio,ticker:h.ticker});const response=await executionHandler(new Request(url.origin+'/api/execution?'+q),env);if(!response.ok)return json({error:'Current price and event evidence are unavailable.'},409);const d:any=await response.json();
+  const h=snap.holdings.find((h:any)=>h.portfolio===b.portfolio&&h.ticker===b.ticker);if(!h||decisionAction(h)!=='Profit review')return json({error:'There is no current profit-taking review for this holding.'},409);
+  const q=new URLSearchParams({portfolio:h.portfolio,ticker:h.ticker,intent:'profit'});const response=await executionHandler(new Request(url.origin+'/api/execution?'+q),env);if(!response.ok)return json({error:'Current price and event evidence are unavailable.'},409);const d:any=await response.json();
   if(!d.saleAssessment?.reviewable)return json({error:'This sale does not pass the current profit-taking checks. '+(d.saleAssessment?.checks?.join(' ')||'')},409);
   fingerprint=profitFingerprint(h,snap.tradePolicy);if(b.fingerprint!==fingerprint)return json({error:'The holding or settings changed. Refresh and review the updated sale.'},409);kind='profit';
  }else{const h=snap.reentries?.find((h:any)=>h.portfolio===b.portfolio&&h.ticker===b.ticker);if(!h||!h.active||h.invalid)return json({error:'There is no valid active re-entry watch for this position.'},409);fingerprint=h.historyKey;if(b.fingerprint!==fingerprint)return json({error:'The recorded trades changed. Refresh and review the latest sale.'},409);kind='reentry';}

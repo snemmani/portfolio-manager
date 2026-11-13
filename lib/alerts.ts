@@ -24,7 +24,7 @@ export async function alertsHandler(request:Request,env:any){
  }
  if(b.operation==='cancel'){await env.DB.prepare("UPDATE price_alerts SET status='cancelled' WHERE id=? AND status='armed'").bind(String(b.id)).run();return json({ok:true});}
  if(b.operation!=='arm')return json({error:'Unknown operation'},400);
- const query=new URLSearchParams({ticker:String(b.ticker||''),portfolio:String(b.portfolio||''),intent:b.intent==='exit'?'exit':'recommended'});if(b.budget)query.set('budget',String(b.budget));
+ const query=new URLSearchParams({ticker:String(b.ticker||''),portfolio:String(b.portfolio||''),intent:b.intent==='exit'?'exit':b.intent==='profit'?'profit':'recommended'});if(b.budget)query.set('budget',String(b.budget));
  const response=await executionHandler(new Request(url.origin+'/api/execution?'+query),env);const d:any=await response.json();
  if(!response.ok||!tradeSummary(d,d.plan?.side).ready)return json({error:'A fresh, actionable, sized regular-session plan is required to arm an alert.'},409);
  const expires=new Date(d.technical.sessionEnd*1000).toISOString(),id=crypto.randomUUID();

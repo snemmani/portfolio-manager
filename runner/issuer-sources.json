@@ -1,0 +1,52 @@
+{
+  "OFSS.NS": {
+    "name": "Oracle Financial Services Software Limited",
+    "website": "https://www.oracle.com/financial-services/ofss/",
+    "sourceHints": [
+      {
+        "title": "OFSS FY2026 annual report \u2014 issuer PDF",
+        "url": "https://www.oracle.com/a/ocom/docs/industries/financial-services/ofss-software-limited-ar-2025-26.pdf",
+        "kind": "annual_report",
+        "financialPeriod": "2026-03-31"
+      },
+      {
+        "title": "OFSS financial statements \u2014 issuer index",
+        "url": "https://www.oracle.com/financial-services/ofss/financial-statements/"
+      },
+      {
+        "title": "OFSS investor relations \u2014 subsidiary-specific site",
+        "url": "https://investor.ofss.oracle.com/home/default.aspx"
+      }
+    ]
+  },
+  "BSE.NS": {
+    "name": "BSE Limited",
+    "website": "https://www.bseindia.com/",
+    "sourceHints": [
+      {
+        "title": "BSE FY2026 annual report \u2014 exact NSE PDF",
+        "url": "https://nsearchives.nseindia.com/annual_reports/AR_29957_BSE_2025_2026_A_15352240_23072026103201.pdf",
+        "kind": "annual_report",
+        "financialPeriod": "2026-03-31"
+      },
+      {
+        "title": "BSE audited FY2026 results and auditor report \u2014 exact NSE PDF",
+        "url": "https://nsearchives.nseindia.com/corporate/BSE1_07052026180422_NSEintimation07052026.pdf",
+        "kind": "results",
+        "financialPeriod": "2026-03-31"
+      },
+      {
+        "title": "BSE September 2026 half-year results \u2014 exact NSE PDF",
+        "url": "https://nsearchives.nseindia.com/corporate/BSE1_04112026175851_NSEINTIMATION.pdf",
+        "kind": "results",
+        "financialPeriod": "2026-09-30"
+      },
+      {
+        "title": "BSE H1 FY2027 investor presentation \u2014 exact NSE PDF",
+        "url": "https://nsearchives.nseindia.com/corporate/BSE1_04112026181604_NSEIntimation.pdf",
+        "kind": "filing",
+        "financialPeriod": "2026-09-30"
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@ import {fundamentalCheck} from './fundamental-policy';
 import {eventSafetyFor} from './event-policy';
 import {actionPriority,actionLabel,compareRecommendations} from './recommendation-order';
 import {cardLines,cardText} from './card-copy';
+import {decisionAction} from './trade-policy';
 const key=(r:any)=>JSON.stringify([r.portfolio,r.ticker]);
 const family=(action:string)=>['buy','add','add candidate'].includes(action.toLowerCase())?'buy':action.toLowerCase();
 function primaryAssessment(holding:any,research:any){
@@ -24,7 +25,8 @@ export function decisionPriority(holding:any,research:any,primary:any){
  const weight=typeof holding.weight==='number'&&Number.isFinite(holding.weight)?` ${holding.weight.toFixed(2)}% of ${holding.portfolio}`:' above the portfolio limit';
  return {...actions,title:'The 15% portfolio limit takes priority',reason:`This holding is${weight}. Reduce only the portion above the 15% limit and keep the rest.${research.action==='hold'?' The Hold recommendation supports keeping the remaining shares; it does not override the position limit.':''}`};
  }
- if(['Exit review','Trim review','Profit review'].includes(holding.action))return {...actions,title:'Financial concerns need review first',reason:'The current portfolio check found a concern that needs checking before following the research view. This is a review request, not an instruction to sell.'};
+ if(holding.action==='Profit review')return {...actions,title:'The profit threshold needs review',reason:'The gain reached your profit-review threshold. Cooldowns and the current sale safeguards still apply; the threshold does not establish a reason to sell.'};
+ if(['Exit review','Trim review'].includes(holding.action))return {...actions,title:'Financial concerns need review first',reason:'The current portfolio check found a concern that needs checking before following the research view. This is a review request, not an instruction to sell.'};
  if(['buy','add'].includes(research.action)&&holding.action!=='Add candidate')return {...actions,title:'Buying must pass the current checks',reason:'Research suggests buying, but the latest holding and financial checks do not support adding shares. No purchase is approved by this card.'};
  if(research.action==='trim')return {...actions,title:'The current position size takes priority',reason:'The latest portfolio check no longer calls for a concentration trim. The earlier research recommendation does not reinstate it.'};
  if(holding.action==='Add candidate')return {...actions,title:'A screening pass is not a buy approval',reason:`The financial screen found a possible addition, but the research recommendation is ${actionLabel(research.action)}. A buy needs both checks to support it.`};
@@ -32,22 +34,27 @@ export function decisionPriority(holding:any,research:any,primary:any){
 }
 export function mergeRecommendations(holdings:any[],research:any[],policy?:any){
  const reviews=new Map(research.map(r=>[key(r),r])),positions=new Map(holdings.map(h=>[key(h),h]));
- return [...positions.values()].map(holding=>{
+ return [...positions.values()].map(original=>{
+  const holding={...original,action:decisionAction(original)};
   const review=reviews.get(key(holding));let primary;
   if(policy?.rulesBased&&holding.action==='Add candidate'){
    const event=eventSafetyFor(policy,holding.ticker);
    const investment=fundamentalCheck(policy,holding.ticker,holding.price,holding.fundamentals?.date),ready=event.clear&&investment.clear;
    primary={...holding,source:'signal',action:ready?'Buy':'Review',reasons:!investment.clear?[investment.reason,...holding.reasons]:event.clear?holding.reasons:[event.reason,...holding.reasons],confidence:ready?'Researched':'Limited'};
   }else primary=primaryAssessment(holding,review);
+  if(policy&&!policy.rulesBased&&['buy','add'].includes(String(primary.action).toLowerCase())){
+   const check=fundamentalCheck(policy,holding.ticker,holding.price,holding.fundamentals?.date),event=eventSafetyFor(policy,holding.ticker);
+   if(!check.clear||!event.clear)primary={...holding,source:'signal',action:'Review',confidence:'Limited',reasons:[!check.clear?check.reason:event.reason,...holding.reasons]};
+  }
   const other=primary.source==='codex'?holding:review;
   const reasons=cardLines(primary.reasons||[]),otherReasons=cardLines(other?.reasons||[]).filter(line=>!reasons.includes(line));
-  return {...holding,...primary,id:key(holding),value:holding.value,price:holding.price,currency:holding.currency,holding,research:review,
+  return {...holding,...primary,id:key(holding),value:holding.value,price:holding.price,currency:holding.currency,holding:original,research:review,
    reasons,risks:cardLines([...(holding.risks||[]),...(review?.risks||[])]),
    copyAction:primary.source==='signal'?primary.action:undefined,
    additionalReasons:otherReasons,
    additionalLabel:primary.source==='codex'?'Portfolio checks':review?`Research view: ${actionLabel(review.action)}`:null,
    assessmentsDiffer:!!review&&family(holding.action)!==family(review.action),
-   decisionPriority:policy?.rulesBased&&holding.action==='Add candidate'?{research:review?actionLabel(review.action):'Not required',portfolio:primary.action,title:'Fundamentals establish the investment case; technicals control timing',reason:'Buying requires a current, source-backed company review and valuation, passing financial and event checks, available cash, exposure room and a valid technical price plan.'}:decisionPriority(holding,review,primary)
+   decisionPriority:policy?.rulesBased&&holding.action==='Add candidate'?{research:review?actionLabel(review.action):'Not required',portfolio:primary.action,title:'Fundamentals establish the investment case; technicals control timing',reason:'Buying requires a current, source-backed company review, reconciled five-year return forecast and valuation, passing financial and event checks, available cash, exposure room and a valid technical price plan.'}:decisionPriority(holding,review,primary)
   };
  }).sort(compareRecommendations);
 }

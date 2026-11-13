@@ -4,7 +4,7 @@ import {saveDiscovery,storedDiscovery,researchDiscovery,DISCOVERY_VERSION} from 
 import {validateDiscovery} from '../lib/discovery';
 import {recheckCandidate} from '../lib/discovery-review';
 import {marketTargets,newsTargets} from '../lib/market-targets';
-const sql=new DatabaseSync(':memory:');sql.exec("CREATE TABLE market_state(id TEXT PRIMARY KEY,discovery_json TEXT); INSERT INTO market_state VALUES('local',NULL); CREATE TABLE discovery_candidates(id TEXT PRIMARY KEY,cycle TEXT,ticker TEXT,data_json TEXT)");
+const sql=new DatabaseSync(':memory:');sql.exec("CREATE TABLE fundamental_reviews(ticker TEXT PRIMARY KEY,data_json TEXT,researched_at TEXT); CREATE TABLE market_state(id TEXT PRIMARY KEY,discovery_json TEXT); INSERT INTO market_state VALUES('local',NULL); CREATE TABLE discovery_candidates(id TEXT PRIMARY KEY,cycle TEXT,ticker TEXT,data_json TEXT)");
 let fail=false;
 const DB={prepare(s:string){const make=(args:any[]):any=>({bind(...a:any[]){return make(a)},async first(){return sql.prepare(s).get(...args)||null},async all(){return {results:sql.prepare(s).all(...args)}},async run(){const r=sql.prepare(s).run(...args);return {meta:{changes:r.changes}}}});return make([])},async batch(stmts:any[]){if(fail)throw Error('simulated storage failure');sql.exec('BEGIN');try{const out=[];for(const s of stmts)out.push(await s.run());sql.exec('COMMIT');return out}catch(e){sql.exec('ROLLBACK');throw e}}};
 const env={DB},now=new Date().toISOString();

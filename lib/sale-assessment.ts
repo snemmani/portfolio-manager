@@ -1,4 +1,4 @@
-import {saleImpact,partialQuantity,profitFingerprint,DEFAULT_TRADE_POLICY} from './trade-policy';
+import {saleImpact,partialQuantity,profitFingerprint,profitSaleBlockers,DEFAULT_TRADE_POLICY} from './trade-policy';
 export function saleAssessment(h:any,p:any,technical:any,policy=DEFAULT_TRADE_POLICY,intent='recommended',quantity?:number|null){
  if(h.nonDiscretionary)return {kind:'locked',justified:false,reviewable:false,illustrative:true,impact:null,reasons:['This employer share-plan holding is excluded from selling and re-entry proposals.'],checks:[] as string[],thesisNotes:[],outlook:'Holding restriction takes priority.'};
  const price=technical.price,profit=h.profitReview,review=['Trim review','Exit review'].includes(h.baseAction||h.action);
@@ -16,7 +16,7 @@ export function saleAssessment(h:any,p:any,technical:any,policy=DEFAULT_TRADE_PO
   const ext=technical.extension,extended=ext?ext.stage>0:technical.rsi14>=70||(technical.atr14>0&&technical.sma20>0&&price-technical.sma20>=2*technical.atr14);
   if(!extended)checks.push('No over-extension signal (200-day extension ≥ 25%, weekly RSI ≥ 75, daily RSI ≥ 75 at a 52-week high, or climax volume). Keep holding instead of trimming solely because of the gain.');
   else reasons.push(ext?`Over-extended: ${ext.signals.join(' ')} Staged trim: ${ext.trimPct}% of the shares. A pullback is not guaranteed.`:`The price is extended: RSI ${technical.rsi14}; price ${price}, 20-day average ${technical.sma20}, daily ATR ${technical.atr14}. A partial sale can reduce the amount exposed to a pullback; a pullback is not guaranteed.`);
-  if(profit?.cooldownUntil)checks.push('A recent recorded trade is still within your waiting period. Wait before another profit-taking sale.');
+  checks.push(...profitSaleBlockers(profit,h.buyGate));
   if(!impact||impact.grossPnl<=0)checks.push('This proposed FIFO sale does not show a positive profit, or its cost basis cannot be verified.');
   if(!p?.complete||h.invalid||h.quote?.stale)checks.push('Current prices and reconciled portfolio records are required.');
   reviewable=extended&&!checks.length;

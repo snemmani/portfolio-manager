@@ -1,3 +1,4 @@
+import {businessModel,type BusinessModel} from './business-model';
 /**
  * Jarvis investment gates — the single source of truth for what blocks a
  * long-term purchase and what only reduces conviction.
@@ -21,19 +22,20 @@
 
 export type GateStatus='pass'|'fail'|'unknown'|'deferred';
 export type GateStage='screen'|'research'|'event'|'portfolio';
-export type GateId='integrity'|'solvency'|'earningsQuality'|'returnOnCapital'|'marginOfSafety'|'caps'|'redFlags';
+export type GateId='integrity'|'solvency'|'earningsQuality'|'returnOnCapital'|'marginOfSafety'|'expectedReturn'|'caps'|'redFlags';
 export interface Gate{id:GateId;label:string;stage:GateStage;status:GateStatus;detail:string}
 export interface GateWarning{id:string;label:string;detail:string;weight:0|1}
 export type Market='IN'|'US';
 export type AnnualRow={period:string;[field:string]:number|string|null|undefined};
 
-export const GATE_POLICY='jarvis-gates-v1';
+export const GATE_POLICY='jarvis-gates-v2';
 export const GATE_LABELS:Record<GateId,string>={
  integrity:'Data integrity',
  solvency:'Solvency',
  earningsQuality:'Earnings quality',
  returnOnCapital:'Return on capital',
  marginOfSafety:'Margin of safety',
+ expectedReturn:'Five-year price CAGR ≥15%',
  caps:'Position and sector caps',
  redFlags:'No serious red-flag event',
 };
@@ -187,14 +189,16 @@ function receivablesGap(r0?:AnnualRow,r1?:AnnualRow){
 
 export interface Intrinsic{value:number;method:string;inputs:Record<string,number>;currency?:string;
  /** False when the inputs look distorted, so the code value is shown but does not cap the buy price. */
- binding?:boolean;note?:string}
+ binding?:boolean;note?:string;
+ /** Statement-currency value before FX conversion; identifies the model independent of FX. */
+ statementValue?:number;statementCurrency?:string}
 
 /**
  * Conservative code valuation per share, in the statement currency.
- * Non-financials: ten-year two-stage earnings-power model. Growth starts at the lower
+ * Operating businesses (including exchanges and fee businesses): ten-year earnings-power model. Growth starts at the lower
  * of revenue and EPS compound growth (capped), fades linearly to the terminal rate,
  * and only the earnings not needed for reinvestment (g / ROCE) are counted.
- * Financials: justified price-to-book, (ROE − g) / (r − g) × book value per share.
+ * Banks and lenders only: justified price-to-book, (ROE − g) / (r − g) × book value per share.
  */
 export function intrinsicValue(m:MultiYear,market:Market,financial:boolean):Intrinsic|null{
  const p=VALUATION[market];
@@ -275,7 +279,7 @@ export function reverseDcf(m:MultiYear,market:Market,financial:boolean,price:num
 // -------------------------------------------------------------- screen stage
 
 export interface ScreenInput{
- ticker:string;market:Market;financial:boolean;
+ ticker:string;market:Market;financial:boolean;sector?:string;industry?:string;
  price:number|null;quoteTime?:number|null;currency?:string|null;financialCurrency?:string|null;
  series?:AnnualRow[]|null;marketCap?:number|null;
  /** Multiplier from statement currency to trading currency when they differ (e.g. USD statements for an NSE listing). */
@@ -299,7 +303,7 @@ export interface Scorecard{
  blocking:Gate[];
  /** Distress or forensic signals serious enough to review an existing holding for exit. */
  severe:string[];
- metrics:MultiYear;intrinsic:Intrinsic|null;reverseDcf:ReverseDcf;
+ metrics:MultiYear;intrinsic:Intrinsic|null;reverseDcf:ReverseDcf;businessModel?:BusinessModel;
  summary:string;
 }
 
@@ -335,6 +339,7 @@ function bucketWarnings(input:ScreenInput):GateWarning[]{
 }
 
 export function screenScorecard(input:ScreenInput):Scorecard{
+ const model=businessModel(input),lender=model.lender,deferred=lender||model.specialist;
  const expected=input.market==='IN'?'INR':'USD',shares=input.sharesOutstanding??(finite(input.marketCap)&&finite(input.price)&&input.price>0?input.marketCap/input.price:null);
  let converted=!!input.financialCurrency&&input.financialCurrency!==expected&&finite(input.statementRate)&&input.statementRate>0,rate=converted?input.statementRate!:1,mislabelled=false;
  let m=multiYear(input.series,finite(input.marketCap)?input.marketCap/rate:null,shares);
@@ -346,17 +351,17 @@ export function screenScorecard(input:ScreenInput):Scorecard{
  if(mislabelled)warnings.push(warn('currency-label','Statement currency label corrected',`Yahoo labels the statements ${input.financialCurrency}, but per-share figures match the ${expected} trailing EPS, so no conversion is applied.`,0));
 
  // 1. Data integrity
- const integrity:string[]=[];
+ const integrity:string[]=[];if(model.kind==='unclassified-financial')integrity.push('The financial business type is unknown; classification and a suitable valuation model are required.');
  if(!finite(input.price)||input.price<=0)integrity.push('No usable market price.');
  if(input.currency&&input.currency!==expected)integrity.push(`Trading currency ${input.currency} does not match ${expected}.`);
  if(input.financialCurrency&&input.financialCurrency!==expected&&!converted&&!mislabelled)integrity.push(`Statements are in ${input.financialCurrency}; no conversion rate is available.`);
  const age=m.latestPeriod?(now-Date.parse(m.latestPeriod))/86400000:null;
  if(age===null)integrity.push('Annual statements are unavailable.');
  else if(age<0||age>THRESHOLDS.statementMaxAgeDays)integrity.push(`Latest annual statements (${m.latestPeriod}) are ${age<0?'future-dated':'older than 18 months'}.`);
- gates.push(gate('integrity','screen',integrity.length?(age===null||!finite(input.price)?'unknown':'fail'):'pass',integrity.length?integrity.join(' '):`Price and ${m.years} years of ${expected} statements through ${m.latestPeriod}.`));
+ gates.push(gate('integrity','screen',integrity.length?(age===null||!finite(input.price)||model.kind==='unclassified-financial'?'unknown':'fail'):'pass',integrity.length?integrity.join(' '):`Price and ${m.years} years of ${expected} statements through ${m.latestPeriod}.`));
 
  // 2. Solvency
- if(input.financial)gates.push(gate('solvency','research','deferred','Banks and lenders are judged on capital adequacy and bad loans, which come from the research review.'));
+ if(deferred)gates.push(gate('solvency','research','deferred',model.label+': '+model.checks));
  else{
   const issues:string[]=[],unknown:string[]=[],passes:string[]=[];
   let leverageOk:boolean|null=null;
@@ -374,7 +379,7 @@ export function screenScorecard(input:ScreenInput):Scorecard{
  }
 
  // 3. Earnings quality
- if(input.financial)gates.push(gate('earningsQuality','research','deferred','Operating cash flow is not meaningful for lenders; the research review checks asset quality and accounting.'));
+ if(deferred)gates.push(gate('earningsQuality','research','deferred',lender?'Credit quality, provisioning and accounting require source-backed lender research.':model.label+': accounting and cash flows require sector-specific source-backed research. '+model.checks));
  else{
   const issues:string[]=[],notes:string[]=[];let status:GateStatus='pass';
   if(finite(m.cashConversionCumulative)){
@@ -396,14 +401,15 @@ export function screenScorecard(input:ScreenInput):Scorecard{
  }
 
  // 4. Return on capital
- {
-  const values=input.financial?m.roeYears:m.roceYears,mid=input.financial?m.roeMedian:m.roceMedian,min=input.financial?THRESHOLDS.roeMinFinancial:THRESHOLDS.roceMin,name=input.financial?'ROE':'ROCE';
+ if(model.specialist)gates.push(gate('returnOnCapital','research','deferred',model.label+': profitability and capital requirements need sector-specific research.'));
+ else{
+  const values=lender?m.roeYears:m.roceYears,mid=lender?m.roeMedian:m.roceMedian,min=lender?THRESHOLDS.roeMinFinancial:THRESHOLDS.roceMin,name=lender?'ROE':'ROCE';
   const describe=`Median ${name} ${finite(mid)?pct(mid):'n/a'} over ${values.length} year${values.length===1?'':'s'}${values.length?` (${values.map(v=>pct(v)).join(', ')})`:''}; required ≥ ${min}%`;
   // Lenders: Yahoo equity can include insurance/asset-management subsidiaries, so a
   // median return on assets of at least 1% is accepted as the bank profitability test.
-  const roaPass=input.financial&&finite(m.roaMedian)&&m.roaMedian>=THRESHOLDS.roaMinFinancial;
+  const roaPass=lender&&finite(m.roaMedian)&&m.roaMedian>=THRESHOLDS.roaMinFinancial;
   const status:GateStatus=!finite(mid)&&!roaPass?'unknown':(finite(mid)&&mid>=min)||roaPass?'pass':'fail';
-  gates.push(gate('returnOnCapital','screen',status,status==='unknown'?`Evidence needed: ${name} could not be calculated.`:input.financial&&finite(m.roaMedian)?`${describe}, or median ROA ≥ ${THRESHOLDS.roaMinFinancial}% (ROA ${pct(m.roaMedian)}).`:describe+'.'));
+  gates.push(gate('returnOnCapital','screen',status,status==='unknown'?`Evidence needed: ${name} could not be calculated.`:lender&&finite(m.roaMedian)?`${describe}, or median ROA ≥ ${THRESHOLDS.roaMinFinancial}% (ROA ${pct(m.roaMedian)}).`:describe+'.'));
   if(values.length&&values.length<3)warnings.push(warn('short-history','Short financial history',`Only ${values.length} year${values.length===1?'':'s'} of ${name} could be calculated.`));
  }
 
@@ -413,14 +419,15 @@ export function screenScorecard(input:ScreenInput):Scorecard{
  if(finite(input.epsTtm)&&finite(input.epsForward)&&input.epsTtm>0&&input.epsForward<input.epsTtm)warnings.push(warn('forward-eps','Forward EPS below trailing',`Forward EPS ${round(input.epsForward)} vs trailing ${round(input.epsTtm)} (${pct((input.epsForward/input.epsTtm-1)*100)}).`));
  if(finite(input.peTtm)&&finite(input.peForward)&&input.peTtm>0&&input.peForward>input.peTtm*1.2)warnings.push(warn('forward-pe','Forward P/E stretched',`Forward P/E ${round(input.peForward,1)} vs trailing ${round(input.peTtm,1)}.`));
  if(finite(input.analystRating)&&input.analystRating>=3)warnings.push(warn('analyst','Analysts cautious',`Average analyst rating ${round(input.analystRating,1)} (1 = strong buy, 5 = sell).`));
- if(input.financial)warnings.push(warn('financial-sector','Lender checks in research','Capital adequacy, bad loans and margins are checked in the research review.',0));
+ if(model.financial)warnings.push(warn('business-model',model.label,model.checks,0));
  warnings.push(...bucketWarnings(input));
 
- const raw=intrinsicValue(m,input.market,input.financial);
- let intrinsic:Intrinsic|null=raw&&converted?{...raw,value:round(raw.value*rate),method:raw.method+` (statements converted from ${input.financialCurrency} at ${round(rate,4)})`}:raw;
- if(intrinsic&&input.financial&&!(finite(m.roeMedian)&&m.roeMedian>=THRESHOLDS.roeMinFinancial))intrinsic={...intrinsic,binding:false,note:'Reported equity appears to include insurance or other subsidiaries, so this value is indicative only and does not cap the buy price.'};
+ const raw=model.model==='research-required'?null:intrinsicValue(m,input.market,lender);
+ if(raw&&model.kind!=='operating'&&!lender)raw.method=model.label+' — '+raw.method;
+ let intrinsic:Intrinsic|null=raw&&converted?{...raw,value:round(raw.value*rate),statementValue:raw.value,statementCurrency:input.financialCurrency!,method:raw.method+` (statements converted from ${input.financialCurrency} at ${round(rate,4)})`}:raw;
+ if(intrinsic&&lender&&!(finite(m.roeMedian)&&m.roeMedian>=THRESHOLDS.roeMinFinancial))intrinsic={...intrinsic,binding:false,note:'Reported equity appears to include insurance or other subsidiaries, so this value is indicative only and does not cap the buy price.'};
  const statements={currency:mislabelled||!input.financialCurrency?expected:input.financialCurrency,rows:normaliseSeries(input.series).slice(0,3).map(r=>({period:String(r.period).slice(0,10),revenue:field(r,'TotalRevenue'),netIncome:field(r,'NetIncome'),operatingCashFlow:field(r,'OperatingCashFlow'),freeCashFlow:field(r,'FreeCashFlow')}))};
- return {...finishScorecard(gates,warnings,m,intrinsic?{...intrinsic,currency:expected}:null,severe,reverseDcf(m,input.market,input.financial,finite(input.price)?input.price/rate:null)),statements};
+ return {...finishScorecard(gates,warnings,m,intrinsic?{...intrinsic,currency:expected}:null,severe,model.specialist?{impliedGrowthPct:null,historicalGrowthPct:null,verdict:'unavailable',summary:model.label+' requires a sector-specific researched valuation; a bank P/B or generic operating DCF is not applied.',assumptions:{}}:reverseDcf(m,input.market,lender,finite(input.price)?input.price/rate:null)),statements,businessModel:model};
 }
 
 function finishScorecard(gates:Gate[],warnings:GateWarning[],m:MultiYear,intrinsic:Intrinsic|null,severe:string[],reverse:ReverseDcf):Scorecard{
@@ -430,19 +437,20 @@ function finishScorecard(gates:Gate[],warnings:GateWarning[],m:MultiYear,intrins
   :blocking.length?`Evidence needed for ${blocking.map(g=>g.label.toLowerCase()).join(', ')}.`
   :count>=THRESHOLDS.watchlistWarnings?`Mandatory checks pass, but ${count} warnings are too many for a position.`
   :count?`Mandatory checks pass with ${count} warning${count===1?'':'s'}; position capped at ${THRESHOLDS.warnedPositionCapPct}%.`:'All mandatory checks pass with no warnings.';
- return {policy:GATE_POLICY,gates,warnings,warningCount:count,status,blocking,severe,metrics:m,intrinsic,reverseDcf:reverse,summary};
+ const pending=gates.filter(g=>g.status==='deferred');
+ return {policy:GATE_POLICY,gates,warnings,warningCount:count,status,blocking,severe,metrics:m,intrinsic,reverseDcf:reverse,summary:pending.length&&status==='eligible'?`Initial numerical screen passed; ${pending.length} mandatory sector checks remain in company research. No purchase approval.`:summary};
 }
 
 /** Compact scorecard stored on candidates and holdings (no raw statements). */
 export function compactScorecard(sc:Scorecard){
  const m=sc.metrics;
- return {policy:sc.policy,status:sc.status,summary:sc.summary,statements:sc.statements,warningCount:sc.warningCount,severe:sc.severe,gates:sc.gates,warnings:sc.warnings,intrinsic:sc.intrinsic,reverseDcf:sc.reverseDcf,
+ return {policy:sc.policy,status:sc.status,summary:sc.summary,businessModel:sc.businessModel,statements:sc.statements,warningCount:sc.warningCount,severe:sc.severe,gates:sc.gates,warnings:sc.warnings,intrinsic:sc.intrinsic,reverseDcf:sc.reverseDcf,
   metrics:{years:m.years,latestPeriod:m.latestPeriod,revenueCagr:m.revenueCagr,earningsCagr:m.earningsCagr,cagrYears:m.cagrYears,roceMedian:m.roceMedian,roceYears:m.roceYears,roeMedian:m.roeMedian,roeYears:m.roeYears,roaMedian:m.roaMedian,cashConversionCumulative:m.cashConversionCumulative,debtEquity:m.debtEquity,interestCoverage:m.interestCoverage,altmanZ:m.altmanZ,beneishM:m.beneishM,revenueGrowthLatest:m.revenueGrowthLatest,earningsGrowthLatest:m.earningsGrowthLatest}};
 }
 /** Per-company gate summary used by the research gate (holdings take precedence over candidates). */
 export function companyGateIndex(candidates:any[]=[],holdings:any[]=[]){
- const out:Record<string,{status:string;warningCount:number;intrinsic:Intrinsic|null;financial:boolean;severe:string[]}>={};
- for(const x of [...holdings,...candidates]){const sc=x?.scorecard;if(!sc||!x.ticker||out[x.ticker])continue;out[x.ticker]={status:sc.status,warningCount:sc.warningCount,intrinsic:sc.intrinsic,financial:x.sector==='Financials',severe:sc.severe||[]};}
+ const out:Record<string,{price?:number;currency?:string;status:string;warningCount:number;intrinsic:Intrinsic|null;financial:boolean;severe:string[];businessModel?:BusinessModel}>={};
+ for(const x of [...holdings,...candidates]){const sc=x?.scorecard;if(!sc||!x.ticker||out[x.ticker])continue;out[x.ticker]={price:x.price,currency:x.currency,status:sc.status,warningCount:sc.warningCount,intrinsic:sc.intrinsic,financial:businessModel(x).lender,businessModel:businessModel(x),severe:sc.severe||[]};}
  return out;
 }
 /** Position cap implied by the total weighted warnings: 15 means "use the normal target". */

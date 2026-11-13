@@ -26,3 +26,12 @@ assert.equal(deployment(dp,[{...dh,aggregateWeight:16}],1000,'India').reserve,10
 assert.equal(deployment({...dp,complete:false},[dh],1000,'India').allocations.length,0);
 assert.equal(isStale(null),true);assert.equal(isStale(Date.parse('2026-11-03T10:00:00Z')/1000,Date.parse('2026-11-03T13:00:00Z'),'INR'),false);
 console.log('PASS: FIFO, explicit cash, missing prices/FX, oversells, corporate actions, ORCL lock, hidden locked-only portfolios, stale-price gates, recent-lot patience, sector gates and cash caps.');
+// Cash dates obey the same integrity boundary as stock trades.
+for(const date of ['2099-01-01','not-a-date','']){
+ const b=ledger([row(1,'Buy',10,100),row(2,'Deposit',1,100000,date,'CASH')],{'AAA.NS':q()},85);
+ assert.equal(b.portfolios[0].cash,0);assert.equal(b.portfolios[0].complete,false);assert.equal(deployment(b.portfolios[0],b.holdings,100000,'India').allocations.length,0);
+}
+for(const cash of [0,1,100000,-1]){
+ const b=ledger([row(1,'Buy',10,100),row(2,'Buy',5,100,'2025-01-01','ORCL','Plan'),row(3,cash<0?'Withdraw':'Deposit',1,Math.abs(cash),'2025-01-01','CASH','Plan')],{'AAA.NS':q(),ORCL:{...q('ORCL'),currency:'USD'}},85);
+ assert.equal(b.totals.value,1000);assert.equal(b.holdings[0].aggregateWeight,100);assert.equal(b.portfolios.length,1);assert.equal(b.hiddenPortfolios[0].value,42500+cash);
+}

@@ -45,7 +45,7 @@ export function crossCheck(financials: any[] | null | undefined, statements: {cu
         report,
         yahoo,
         diffPct: finite(diffPct) ? Math.round(diffPct * 10) / 10 : null,
-        status: diffPct === null ? 'missing' : Math.abs(diffPct) <= CROSS_CHECK_TOLERANCE[metric] ? 'match' : 'differs',
+        status: !finite(report) || !finite(yahoo) ? 'missing' : report === 0 ? (yahoo === 0 ? 'match' : 'differs') : Math.abs(diffPct!) <= CROSS_CHECK_TOLERANCE[metric] ? 'match' : 'differs',
       });
     }
   }

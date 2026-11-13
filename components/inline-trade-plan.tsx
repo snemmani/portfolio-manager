@@ -11,7 +11,7 @@ export default function InlineTradePlan({ticker,portfolio,action,budget,revision
  const a=action.toLowerCase(),side=['trim','sell','exit','profit review','trim review','exit review'].includes(a)?'sell':['buy','add','add candidate','enter'].includes(a)?'buy':null;
  const allowed=!!side&&!!portfolio;
  const [data,setData]=useState<any>(null),[error,setError]=useState(''),[now,setNow]=useState(Date.now());
- const query=new URLSearchParams({ticker,portfolio:portfolio||'',intent:'recommended'});if(budget!==undefined&&budget!=='')query.set('budget',budget);const key=query.toString();
+ const query=new URLSearchParams({ticker,portfolio:portfolio||'',intent:a==='profit review'?'profit':'recommended'});if(budget!==undefined&&budget!=='')query.set('budget',budget);const key=query.toString();
  useEffect(()=>{setData(null);setError('');if(!allowed)return;let mounted=true;const refresh=()=>load(key).then(d=>{if(mounted){setData(d);setError('')}}).catch(()=>{if(mounted){setData(null);setError('Market data is unavailable. Quantity and price cannot be confirmed.')}});refresh();const timer=setInterval(refresh,60000);return()=>{mounted=false;clearInterval(timer)}},[key,allowed,revision]);
  useEffect(()=>{if(!allowed)return;const timer=setInterval(()=>setNow(Date.now()),5000);return()=>clearInterval(timer)},[allowed]);
  const summary=side?tradeSummary(data,side,now):null;

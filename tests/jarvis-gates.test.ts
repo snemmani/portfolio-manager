@@ -62,10 +62,10 @@ assert(sc.metrics.beneishM!>THRESHOLDS.beneishFlag);assert.equal(sc.gates.find(g
 
 // 6. Lenders: solvency/earnings quality come from research; ROA ≥ 1% passes when equity looks inflated.
 const bank=[0,1,2,3].map(i=>({period:`${2026-i}-03-31`,TotalRevenue:1000,NetIncome:140,TotalAssets:10000,StockholdersEquity:1600,OrdinarySharesNumber:10,DilutedEPS:14}));
-sc=screenScorecard({...base,ticker:'BANK.NS',financial:true,series:bank,marketCap:3000});
+sc=screenScorecard({...base,ticker:'BANK.NS',financial:true,industry:'Banks - Regional',series:bank,marketCap:3000});
 assert.equal(sc.gates.find(g=>g.id==='solvency')!.status,'deferred');assert.equal(sc.gates.find(g=>g.id==='returnOnCapital')!.status,'pass','ROA 1.4% passes despite ROE 8.75%');
 assert.equal(sc.intrinsic?.binding,false,'Code value is indicative when ROE looks distorted');
-assert.equal(screenScorecard({...base,financial:true,series:bank.map(r=>({...r,NetIncome:60}))}).gates.find(g=>g.id==='returnOnCapital')!.status,'fail');
+assert.equal(screenScorecard({...base,financial:true,industry:'Banks - Regional',series:bank.map(r=>({...r,NetIncome:60}))}).gates.find(g=>g.id==='returnOnCapital')!.status,'fail');
 
 // 7. Valuation: conservative and monotonic in growth.
 const m=multiYear(healthy,2000);
@@ -111,6 +111,6 @@ assert(a.scorecard&&!('series' in (a.fundamentals||{})&&a.fundamentals.series),'
 // 10. Candidates use the gates whenever statements are attached; the company index feeds research.
 const cand:any={ticker:'NEW.NS',market:'IN',sector:'Technology',currency:'INR',price:200,status:'rejected',metrics:{financialCurrency:'INR',marketCap:2000,revenue_growth_yoy:-3},annualSeries:dip,matchedScreens:[]};
 const gated=applyScreenGates(cand);assert.notEqual(gated.status,'rejected','Python single-year rejections are re-decided by the gates');assert(gated.scorecard.gates.length===4);
-const index=companyGateIndex([gated],[{ticker:'HELD.NS',sector:'Financials',scorecard:compactScorecard(screenScorecard({...base,financial:true,series:bank}))}]);
+const index=companyGateIndex([gated],[{ticker:'HELD.NS',sector:'Financials',industry:'Banks - Regional',scorecard:compactScorecard(screenScorecard({...base,financial:true,industry:'Banks - Regional',series:bank}))}]);
 assert(index['NEW.NS']&&index['HELD.NS'].financial===true);
 console.log('PASS: Jarvis mandatory gates (integrity, solvency, earnings quality, return on capital), warnings and conviction caps, unknown-evidence handling, currency conversion, corroborated Beneish, lender ROA test, conservative valuation, serious-event classification, holding decisions and the 17% trim band.');

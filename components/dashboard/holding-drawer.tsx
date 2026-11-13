@@ -1,4 +1,6 @@
 'use client';
+import {useApi} from '../../lib/client/use-api';
+import {holdingReturnPct} from '../../lib/portfolio-values';
 
 import { useEffect, useState } from 'react';
 import { X, TrendingUp, ExternalLink, BookOpen } from 'lucide-react';
@@ -15,6 +17,8 @@ type Tab = 'checks' | 'why' | 'figures';
 /** Holding detail panel: price, position, Jarvis checks, report evidence and the reasoning behind the signal. */
 export default function HoldingDrawer({ selected, setSelected, showExecution }: any) {
   const [tab, setTab] = useState<Tab>('checks');
+  const reviewStatus=useApi('/api/analysis?holdings=1',{interval:60000,timeout:20000});
+  const research=reviewStatus.error?undefined:reviewStatus.data?.fundamentalReviews?.[selected?.ticker];
   useEffect(() => {
     const key = (e: KeyboardEvent) => e.key === 'Escape' && setSelected(null);
     window.addEventListener('keydown', key);
@@ -27,7 +31,7 @@ export default function HoldingDrawer({ selected, setSelected, showExecution }: 
   if (!selected) return null;
   const h = selected;
   const day = h.quote?.price && h.quote?.previous ? (h.quote.price / h.quote.previous - 1) * 100 : null;
-  const ret = h.invested ? ((h.unrealised || 0) / h.invested) * 100 : null;
+  const ret = holdingReturnPct(h);
   const f = h.fundamentals || {};
 
   return (
@@ -40,30 +44,31 @@ export default function HoldingDrawer({ selected, setSelected, showExecution }: 
         className="absolute inset-y-0 right-0 flex w-full max-w-[640px] flex-col border-l border-line bg-background shadow-2xl"
       >
         {/* Header */}
-        <header className="flex items-start gap-3 border-b border-line bg-panel px-4 py-3">
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 border-b border-line bg-panel px-4 py-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-mono text-lg font-semibold">{symbol(h.ticker)}</h2>
-              <SignalBadge action={h.action} />
+              <SignalBadge action={h.action} label={h.action==='Add candidate'?h.purchaseStep?.label:undefined} title={h.purchaseStep?.reason}/>
               <GateGlyphs scorecard={h.scorecard} />
             </div>
             <div className="mt-0.5 truncate text-xs text-muted-foreground">
               {h.portfolio} · {h.sector} · {h.ticker}
             </div>
           </div>
-          <div className="text-right">
+          <div className="col-span-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-right">
             <div className="font-mono text-lg font-semibold tabular-nums">{px(h.price, h.currency)}</div>
             <div className="font-mono text-[11px] tabular-nums">
               <span className={tone(day)}>{pct(day, { digits: 2 })}</span>
-              <span className="text-muted-foreground"> · {h.quote?.stale ? 'stale · ' : ''}{date(h.quote?.time)}</span>
+              <span className="text-muted-foreground"> · {h.quote?.stale ? 'stale · ' : ''}{date(h.quote?.time)}</span>{h.quote?.freshness&&<div className="text-muted-foreground">Expected session {h.quote.freshness.expectedSession} · {h.quote.freshness.reason}{!h.quote.freshness.calendarCovered?' · holiday calendar unavailable for this year':''}</div>}
             </div>
           </div>
-          <button onClick={() => setSelected(null)} aria-label="Close" className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground">
+          <button onClick={() => setSelected(null)} aria-label="Close" className="col-start-2 row-start-1 grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground">
             <X className="size-4" />
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto">
+          {h.purchaseStep&&<section className="border-b border-line px-4 py-3 text-xs leading-relaxed"><h3 className="font-semibold">Next purchase step · {h.purchaseStep.label}</h3><p className="mt-1 text-muted-foreground">{h.purchaseStep.reason}</p></section>}
           <div className="border-b border-line p-4">
             <PriceChart points={h.quote?.history || []} currency={h.currency} />
           </div>
@@ -122,7 +127,7 @@ export default function HoldingDrawer({ selected, setSelected, showExecution }: 
           <div className="p-4">
             {tab === 'checks' && (
               <div>
-                <JarvisScorecard scorecard={h.scorecard} price={h.price} currency={h.currency} />
+                <JarvisScorecard scorecard={h.scorecard} price={h.price} currency={h.currency} research={research} researchContext={reviewStatus.data} />
                 <ReportEvidence ticker={h.ticker} scorecard={h.scorecard} />
               </div>
             )}

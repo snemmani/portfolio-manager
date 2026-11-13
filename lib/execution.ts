@@ -24,7 +24,7 @@ export async function loadExecutionContext(env:any,snapshot?:any):Promise<any>{
 export async function executionHandler(request:Request,env:any){
  if(request.method!=='GET')return json({error:'Method not allowed'},405);
  const url=new URL(request.url),ticker=(url.searchParams.get('ticker')||'').toUpperCase(),portfolio=url.searchParams.get('portfolio')||'',intent=url.searchParams.get('intent')||'recommended';
- if(!/^[A-Z0-9.&-]{1,25}(\.NS|\.BO)?$/.test(ticker)||!['recommended','exit'].includes(intent))return json({error:'Invalid price-plan request'},400);
+ if(!/^[A-Z0-9.&-]{1,25}(\.NS|\.BO)?$/.test(ticker)||!['recommended','profit','exit'].includes(intent))return json({error:'Invalid price-plan request'},400);
  const context=await loadExecutionContext(env);
  if(!context.snap.holdings.some((h:any)=>h.ticker===ticker&&h.portfolio===portfolio)&&!context.live?.discovery?.candidates?.some((c:any)=>c.ticker===ticker))return json({error:'Select a current holding or a screened candidate.'},404);
  const data=executionFromContext(context,await technicalData(ticker),{ticker,portfolio,intent,budget:url.searchParams.get('budget')});

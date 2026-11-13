@@ -3,6 +3,7 @@
 import { ShieldCheck, AlertTriangle, LineChart, ExternalLink, Calculator } from 'lucide-react';
 import type { ViewProps } from './types';
 import { THRESHOLDS, VALUATION } from '../../lib/jarvis-gates';
+import { RETURN_POLICY } from '../../lib/return-potential';
 import { RULES } from '../../lib/engine';
 import { Panel } from '../terminal/ui';
 
@@ -13,7 +14,8 @@ export default function FrameworkView({}: ViewProps) {
     ['Solvency', `Debt/equity below ${THRESHOLDS.debtEquityMax}, interest cover above ${THRESHOLDS.interestCoverMin}× and Altman Z above ${THRESHOLDS.altmanMin}. Banks and lenders: capital adequacy and bad loans from the company review.`],
     ['Earnings quality', `Operating cash flow at least ${THRESHOLDS.cashConversionMin * 100}% of profit over three years, and no serious forensic red flag (Beneish M-score above ${THRESHOLDS.beneishFlag} with high accruals or receivables outpacing sales, or a serious finding in the company review).`],
     ['Return on capital', `Median ROCE of at least ${THRESHOLDS.roceMin}% over the available years. Lenders: median ROE ≥ ${THRESHOLDS.roeMinFinancial}% or median ROA ≥ ${THRESHOLDS.roaMinFinancial}%.`],
-    ['Margin of safety', 'Price at or below the lower of the code valuation and the researched maximum entry price.'],
+    ['Annualised price return', `At least ${RETURN_POLICY.minimum*100}% projected price CAGR over five years. Three-year CAGR is shown for comparison. Uses modelled future prices, excludes dividends, fees and taxes, and blocks when projection inputs are missing. A forecast is not a guarantee.`],
+    ['Margin of safety', 'Price at or below the lowest of the code valuation, researched maximum entry and the five-year 15% return entry ceiling.'],
     ['Position and sector caps', `${RULES.single}% per stock (trim once above ${RULES.trimTrigger}%), 25% cyclical, 20% commodity, 15% Category C, household single-stock 15%.`],
     ['No serious red flag', `Fraud, regulator action, auditor resignation, default, insolvency, promoter-pledge invocation, trading suspension and similar. Coverage must be under ${THRESHOLDS.eventCoverageHours} hours old.`],
   ];

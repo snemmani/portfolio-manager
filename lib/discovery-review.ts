@@ -1,13 +1,16 @@
 import {screenScorecard,compactScorecard,GATE_POLICY} from './jarvis-gates';
+import {businessModel} from './business-model';
 /** A missing portfolio assessment is not an investment rejection. */
 export function candidateReview(candidate:any,portfolio:string,ideas:any[]=[]){
  const idea=ideas.find(i=>i.portfolio===portfolio&&i.ticker===candidate.ticker);
  const checks=[...(candidate.gateReasons||[]),...(candidate.evidenceGaps||[])];
  if(candidate.status!=='eligible')return {state:candidate.status,label:candidate.status==='rejected'?'Rejected by screening':'On watchlist',reasons:checks.length?checks:['The screening checks have not passed.'],idea};
  if(!portfolio||portfolio==='All portfolios')return {state:'choose',label:'Choose a portfolio',reasons:['Select a portfolio to check whether this stock fits its holdings and available cash.'],idea:null};
+ if(idea?.fundamentalStatus==='return-reconciliation')return {state:'pending',label:'Return assumptions need reconciliation',reasons:[idea.thesis||'Reconcile the forward base case before buying.'],idea};
+ if(idea?.fundamentalStatus==='return-pending')return {state:'pending',label:'Return estimate pending',reasons:[idea.thesis||'A sourced forward base case is required before buying.'],idea};
  if(!idea||['missing','incomplete','stale'].includes(idea.fundamentalStatus)&&idea.decision!=='reject')return {state:'pending',label:idea?.fundamentalStatus==='incomplete'?'Research unfinished':'Investment research pending',reasons:[idea?.thesis||`Investment research for this company has not been completed. Review the next candidates to prepare a purchase plan for ${portfolio}.`],idea:idea||null};
  const reasons=[idea.fundamentalStatus&&idea.fundamentalStatus!=='supported'&&idea.fundamentalStatus!=='legacy'&&`Investment case: ${idea.thesis}`,idea.risk&&`Main concern: ${idea.risk}`,idea.portfolioFit&&`Portfolio fit: ${idea.portfolioFit}`].filter(Boolean) as string[];
- return {state:idea.decision,label:idea.source==='rules'?(idea.decision==='enter'?'Financial & event rules pass — check price plan':'Buying paused by the current checks'):idea.decision==='enter'?'Buy approved for this portfolio':idea.decision==='reject'?'Not recommended for this portfolio':'Wait before buying',reasons,idea};
+ return {state:idea.decision,label:idea.source==='rules'?(idea.decision==='enter'?'Financial & event rules pass — check price plan':'Buying paused by the current checks'):idea.decision==='enter'?'Investment case supports entry — check trade gates':idea.decision==='reject'?'Not recommended for this portfolio':'Wait before buying',reasons,idea};
 }
 export function discoveryCoverage(candidates:any[],portfolio:string,ideas:any[],allocations:any[]=[]){
  const eligible=candidates.filter(c=>c.status==='eligible'),reviews=eligible.map(c=>candidateReview(c,portfolio,ideas));
@@ -17,7 +20,7 @@ export function discoveryCoverage(candidates:any[],portfolio:string,ideas:any[],
 /** Jarvis gates for a screened candidate; the Python status is only a fallback for rows without statements. */
 export function candidateScorecard(c:any){
  const metrics=c.metrics||{};
- return screenScorecard({ticker:c.ticker,market:c.market==='US'?'US':'IN',financial:c.sector==='Financials',price:Number.isFinite(c.price)?c.price:null,quoteTime:c.quoteTime,currency:c.currency,financialCurrency:metrics.financialCurrency,series:c.annualSeries,marketCap:metrics.marketCap,epsTtm:metrics.eps_ttm,epsForward:metrics.eps_forward,peTtm:metrics.pe_ttm,peForward:metrics.pe_forward,analystRating:metrics.analystRating,matchedScreens:c.matchedScreens,bucketMetrics:metrics});
+ return screenScorecard({ticker:c.ticker,market:c.market==='US'?'US':'IN',sector:c.sector,industry:c.industry,financial:c.sector==='Financials',price:Number.isFinite(c.price)?c.price:null,quoteTime:c.quoteTime,currency:c.currency,financialCurrency:metrics.financialCurrency,series:c.annualSeries,marketCap:metrics.marketCap,epsTtm:metrics.eps_ttm,epsForward:metrics.eps_forward,peTtm:metrics.pe_ttm,peForward:metrics.pe_forward,analystRating:metrics.analystRating,matchedScreens:c.matchedScreens,bucketMetrics:metrics});
 }
 export function applyScreenGates(c:any){
  const sc=candidateScorecard(c);
@@ -25,9 +28,15 @@ export function applyScreenGates(c:any){
  return {...c,status:sc.status,gateReasons:reasons,scorecard:compactScorecard(sc),screenPolicy:sc.policy};
 }
 export function recheckCandidate(candidate:any,strict=false){
+ const pendingScorecard=()=>({policy:GATE_POLICY,businessModel:businessModel(candidate),status:'watchlist',summary:'Financial checks and valuation need recalculation under the corrected business model.',gates:[{id:'integrity',label:'Data integrity',stage:'screen',status:'unknown',detail:'A current financial screen under the corrected business model is required.'}],warnings:[],warningCount:0,severe:[],metrics:{},intrinsic:null,reverseDcf:null});
+ if(candidate.screenRefreshPending){
+  const scorecard=Array.isArray(candidate.annualSeries)&&candidate.annualSeries.length?compactScorecard(candidateScorecard(candidate)):candidate.scorecard?.policy===GATE_POLICY?candidate.scorecard:pendingScorecard();
+  return {...candidate,scorecard,status:candidate.status==='rejected'?'rejected':'watchlist'};
+ }
  if(Array.isArray(candidate.annualSeries)&&candidate.annualSeries.length)return applyScreenGates(candidate);
  // Already decided by the gates (statements stripped from the live payload): keep that decision.
  if(candidate.screenPolicy===GATE_POLICY)return candidate;
+ if(candidate.scorecard?.policy&&candidate.scorecard.policy!==GATE_POLICY)return {...candidate,status:candidate.status==='rejected'?'rejected':'watchlist',scorecard:pendingScorecard(),gateReasons:['Financial screen and valuation need recalculation under the corrected business classification.',...(candidate.gateReasons||[])]};
  if(candidate.status!=='eligible')return candidate;
  const checks:[RegExp,string,string,string][]=[[/Rev Growth>([\d.]+)%/i,'revenue_growth_yoy','Revenue growth','%'],[/NI Growth>([\d.]+)%/i,'earnings_growth_yoy','Earnings growth','%'],[/ROE>([\d.]+)%/i,'roe','ROE','%'],[/P\/E<([\d.]+)/i,'pe_ttm','P/E',''],[/P\/B<([\d.]+)/i,'pb','P/B',''],[/PEG<([\d.]+)/i,'peg','PEG',''],[/ROCE>([\d.]+)%/i,'roce','Return on capital employed','%'],[/Net Margin>([\d.]+)%/i,'netMargin','Net profit margin','%'],[/ICR>([\d.]+)/i,'interestCoverage','Interest coverage',''],[/(?<!LT )D\/E<([\d.]+)/i,'debtEquity','Debt/equity',''],[/LT D\/E<([\d.]+)/i,'longTermDebtEquity','Long-term debt/equity','']];
  const screens=(candidate.matchedScreens||[]).map((screen:any)=>{
