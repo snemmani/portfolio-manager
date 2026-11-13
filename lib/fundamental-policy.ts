@@ -1,3 +1,4 @@
+import {financialAssumptionIssues} from './financial-assumptions';
 import {businessModel} from './business-model';
 import {buyCeiling} from './buy-ceiling';
 import {returnPotential} from './return-potential';
@@ -55,11 +56,11 @@ export function fundamentalCheck(discovery:any,ticker:string,price?:number|null,
  if(Number.isFinite(lastResults)&&lastResults<=now&&lastResults>Date.parse(r.researchedAt))return {clear:false,status:'stale',reason:'New quarterly results were published after the company review. The review needs updating before buying.',review:r};
  if(classified?.serious.length&&event.fingerprint!==r.eventFingerprint)return {clear:false,status:'stale',reason:'A serious company event appeared after the review. The investment case must be reassessed; acknowledging the headline alone does not update it.',review:r};
  // materiality-v3 blockers are mandatory by construction; older reviews mixed in evidence gaps.
- if(r.policyVersion==='materiality-v3'&&r.blockingReasons?.length)return {clear:false,status:'incomplete',reason:r.blockingReasons[0],blockers:r.blockingReasons,warnings:r.warnings||[],review:r};
  const oldValuationGap=r.policyVersion!=='materiality-v3'&&(r.blockingReasons||[]).some((b:string)=>/valuation|maximum entry/i.test(b));
  if(r.decision==='reject')return {clear:false,status:'reject',reason:'The company review does not support owning this business.',blockers:r.blockingReasons||r.gaps||[],warnings:r.warnings||[],review:r};
 
- const financial=company?.financial===true;
+ const financial=company?.financial===true||model.lender===true;
+ if(r.policyVersion==='materiality-v3'&&r.blockingReasons?.length)return {clear:false,status:'incomplete',reason:r.blockingReasons[0],blockers:r.blockingReasons,warnings:r.warnings||[],review:r};
  const area=(key:string)=>r.areas?.find((a:any)=>a.area===key);
  const gates:Gate[]=[],blockers:string[]=[],warnings:string[]=[];
  // Earnings quality (research part): serious accounting findings block.
@@ -87,14 +88,20 @@ export function fundamentalCheck(discovery:any,ticker:string,price?:number|null,
  if(researchNotes.length)warnings.push(`Research notes (${researchNotes.length}): ${researchNotes.slice(0,3).join(' · ')}`);
  const eventWarnings=classified?.warnings||[];
  const total=warnings.length+(finite(company?.warningCount)?company.warningCount:0)+warningWeight(eventWarnings);
- const allWarnings=[...warnings,...eventWarnings.filter(w=>w.weight).map(w=>`${w.label}: ${w.detail}`),...researchNotes,...notes];
- if(purpose==='purchase')gates.push({id:'expectedReturn',label:'Five-year price CAGR ≥15%',stage:'research',status:!potential.known||!Number.isFinite(price)||price!<=0?'unknown':potential.passes?'pass':'fail',detail:potential.reason});
+ // Cross-source data notes are shown but do not count toward the warning total (definitions legitimately differ).
+ const allWarnings=[...warnings,...eventWarnings.filter(w=>w.weight).map(w=>`${w.label}: ${w.detail}`),...researchNotes,...notes,...(r.financialAssumptionWarnings||[])];
+ if(purpose==='purchase')gates.push({id:'expectedReturn',label:`Five-year total return ≥${Math.round(potential.hurdle*100)}%`,stage:'research',status:!potential.known||!Number.isFinite(price)||price!<=0?'unknown':potential.passes?'pass':'fail',detail:potential.reason});
+ // The numerical earnings/dividend/valuation bridge gates buying only; holding and sale decisions use the business case.
+ const assumptionIssues=purpose==='purchase'?financialAssumptionIssues(r,financial):[];
+ if(assumptionIssues.length)return {clear:false,status:'financial-reconciliation',reason:assumptionIssues[0],blockers:assumptionIssues,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
  if(purpose==='purchase'&&potential.needsReconciliation)return {clear:false,status:'return-reconciliation',reason:potential.reason,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
  if(purpose==='purchase'&&(!potential.known||!Number.isFinite(price)||price!<=0))return {clear:false,status:'return-pending',reason:potential.reason,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
- if(purpose==='purchase'&&Number.isFinite(price)&&!potential.passes)return {clear:false,status:'return',reason:potential.reason+` The 15% return entry ceiling is ${returnCeiling} ${valuation.currency||''}.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
+ // A bear case below cost is a margin-of-safety failure: the business clears the hurdle but the price is too high to protect the downside.
+ if(purpose==='purchase'&&Number.isFinite(price)&&!potential.passes&&potential.passesHurdle)return {clear:false,status:'valuation',reason:potential.reason+` The bear-protected entry ceiling is ${returnCeiling} ${valuation.currency||''}.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
+ if(purpose==='purchase'&&Number.isFinite(price)&&!potential.passes)return {clear:false,status:'return',reason:potential.reason+` The return entry ceiling is ${returnCeiling} ${valuation.currency||''}.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
  if(total>=THRESHOLDS.watchlistWarnings)return {clear:false,status:'watch',reason:`Mandatory checks pass, but ${total} warnings (screen, research and events) are too many for a position. Keep it on the watchlist.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
- gates.push({id:'marginOfSafety',label:'Margin of safety',stage:'research',status:Number.isFinite(price)&&price!>ceiling!?'fail':'pass',detail:`Buy ceiling ${ceiling} ${valuation.currency||''}: lower of the researched entry (${maxEntry})${codeBinding?`, code valuation (${codeValue})`:''}${purpose==='purchase'?` and 15% return ceiling (${returnCeiling})`:''}${!codeBinding&&codeValue!==null?`; the code valuation (${codeValue}) is indicative only`:''}.`});
- if(Number.isFinite(price)&&price!>ceiling!)return {clear:false,status:'valuation',reason:`The price is above the buy ceiling of ${ceiling} ${valuation.currency||''} (lower of the researched entry ${maxEntry}${codeBinding?`, code valuation ${codeValue}`:''}${purpose==='purchase'?` and 15% return ceiling ${returnCeiling}`:''}). Wait for a margin of safety.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
+ gates.push({id:'marginOfSafety',label:'Margin of safety',stage:'research',status:Number.isFinite(price)&&price!>ceiling!?'fail':'pass',detail:`Buy ceiling ${ceiling} ${valuation.currency||''}: lower of the researched entry (${maxEntry})${codeBinding?`, code valuation (${codeValue})`:''}${purpose==='purchase'?` and ${Math.round(potential.hurdle*100)}% return ceiling (${returnCeiling})`:''}${!codeBinding&&codeValue!==null?`; the code valuation (${codeValue}) is indicative only`:''}.`});
+ if(Number.isFinite(price)&&price!>ceiling!)return {clear:false,status:'valuation',reason:`The price is above the buy ceiling of ${ceiling} ${valuation.currency||''} (lower of the researched entry ${maxEntry}${codeBinding?`, code valuation ${codeValue}`:''}${purpose==='purchase'?` and ${Math.round(potential.hurdle*100)}% return ceiling ${returnCeiling}`:''}). Wait for a margin of safety.`,warnings:allWarnings,warningCount:total,gates,valuation,returnPotential:potential,review:r};
  const cap=convictionCap(total);
  return {clear:true,status:'supported',reason:total?`Mandatory checks pass with ${total} warning${total===1?'':'s'}; the position is capped at ${cap}%.`:'All mandatory checks pass.',warnings:allWarnings,warningCount:total,positionCapPct:cap,gates,valuation,returnPotential:potential,review:r};
 }

@@ -27,7 +27,7 @@ const before=JSON.stringify(snap),display=withHoldingSteps(snap,policy);assert.e
 for(let i=0;i<4000;i++){
  const price=i/10+.1,held={...h,price,portfolio:'P'+i},x=withHoldingSteps({...snap,holdings:[held]},policy).holdings[0];
  assert.equal(x.action,'Add candidate');assert.equal(x.price,price);assert.equal(x.value,h.value);// Five-year base case 750: above 750/1.15^5 (372.88) the return hurdle fails before the valuation wait.
- assert.equal(x.purchaseStep.label,price<=150?'Trade checks pending':price>372.89?'Below 15% return hurdle':'Waiting for entry price');
+ assert.equal(x.purchaseStep.label,price<=150?'Trade checks pending':price>372.89?'Below the return hurdle':'Waiting for entry price');
  assert(!('authorized' in x.purchaseStep)&&!('canDraft' in x.purchaseStep),'Labels never grant trading authority');
 }
 console.log('PASS: 4,000 price/readiness states, missing/incomplete/expired/queued/running research, price-only waits, event/cooldown/data blocks and immutable execution actions.');

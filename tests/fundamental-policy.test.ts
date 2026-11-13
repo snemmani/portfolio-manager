@@ -4,7 +4,7 @@ import {validateFundamentals,primarySource,publicSourceUrl} from '../lib/fundame
 import {fundamentalScope} from '../lib/fundamental-store';
 import {fundamentalFixture,storedFundamental} from './fundamental-fixture.mjs';
 const raw=fundamentalFixture(),snapshot={fundamentalPolicy:FUNDAMENTAL_POLICY,fundamentalScope:[{ticker:raw.ticker,currency:'INR',statementPeriod:raw.statementPeriod}],fundamentalProfiles:{[raw.ticker]:{website:'https://issuer.example'}}};
-const checks=raw.sources.map(s=>({ticker:raw.ticker,url:s.url,reachable:true}));
+const checks=raw.sources.map((s:any)=>({ticker:raw.ticker,url:s.url,reachable:true}));
 const record=validateFundamentals([raw],snapshot,checks)[0];assert.equal(record.decision,'supported');
 let policy={fundamentalPolicy:FUNDAMENTAL_POLICY,fundamentalReviews:{[raw.ticker]:record}};
 assert(fundamentalCheck(policy,raw.ticker,149).clear);assert.equal(fundamentalCheck(policy,raw.ticker,151).status,'valuation');assert.equal(fundamentalCheck(policy,'UNKNOWN').status,'missing');

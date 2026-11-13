@@ -1,6 +1,7 @@
 'use client';
 
-import { ShieldCheck, AlertTriangle, LineChart, ExternalLink, Calculator } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, LineChart, ExternalLink, Calculator, Target } from 'lucide-react';
+import { useApi } from '../../lib/client/use-api';
 import type { ViewProps } from './types';
 import { THRESHOLDS, VALUATION } from '../../lib/jarvis-gates';
 import { RETURN_POLICY } from '../../lib/return-potential';
@@ -14,8 +15,8 @@ export default function FrameworkView({}: ViewProps) {
     ['Solvency', `Debt/equity below ${THRESHOLDS.debtEquityMax}, interest cover above ${THRESHOLDS.interestCoverMin}× and Altman Z above ${THRESHOLDS.altmanMin}. Banks and lenders: capital adequacy and bad loans from the company review.`],
     ['Earnings quality', `Operating cash flow at least ${THRESHOLDS.cashConversionMin * 100}% of profit over three years, and no serious forensic red flag (Beneish M-score above ${THRESHOLDS.beneishFlag} with high accruals or receivables outpacing sales, or a serious finding in the company review).`],
     ['Return on capital', `Median ROCE of at least ${THRESHOLDS.roceMin}% over the available years. Lenders: median ROE ≥ ${THRESHOLDS.roeMinFinancial}% or median ROA ≥ ${THRESHOLDS.roaMinFinancial}%.`],
-    ['Annualised price return', `At least ${RETURN_POLICY.minimum*100}% projected price CAGR over five years. Three-year CAGR is shown for comparison. Uses modelled future prices, excludes dividends, fees and taxes, and blocks when projection inputs are missing. A forecast is not a guarantee.`],
-    ['Margin of safety', 'Price at or below the lowest of the code valuation, researched maximum entry and the five-year 15% return entry ceiling.'],
+    ['Annualised total return', `At least ${RETURN_POLICY.hurdles.INR*100}% a year (India) or ${RETURN_POLICY.hurdles.USD*100}% (US) projected total return over five years: price target plus dividends after a ${RETURN_POLICY.dividendTax*100}% tax haircut. The target is capped at year-5 EPS × the lower of the forecast exit P/E and the higher of today's and the historical median P/E. The five-year bear case must return the capital. Blocks when projection inputs are missing. A forecast is not a guarantee.`],
+    ['Margin of safety', 'Price at or below the lowest of the code valuation, researched maximum entry and the five-year return entry ceiling (hurdle and bear-case limits).'],
     ['Position and sector caps', `${RULES.single}% per stock (trim once above ${RULES.trimTrigger}%), 25% cyclical, 20% commodity, 15% Category C, household single-stock 15%.`],
     ['No serious red flag', `Fraud, regulator action, auditor resignation, default, insolvency, promoter-pledge invocation, trading suspension and similar. Coverage must be under ${THRESHOLDS.eventCoverageHours} hours old.`],
   ];
@@ -88,6 +89,8 @@ export default function FrameworkView({}: ViewProps) {
           </p>
         </Panel>
 
+        <ForecastTrackRecord heading={h} />
+
         <Panel>
           <h3 className={h}>
             <Calculator className="size-3.5 text-brand" /> Valuation
@@ -120,5 +123,74 @@ export default function FrameworkView({}: ViewProps) {
         </Panel>
       </div>
     </div>
+  );
+}
+
+const pts = (v: number | null | undefined, signed = false) =>
+  typeof v === 'number' && Number.isFinite(v) ? `${signed && v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%` : '—';
+
+/** Logged five-year forecasts scored against actual prices, so the hurdle can be tuned to how accurate forecasts really are. */
+function ForecastTrackRecord({ heading }: { heading: string }) {
+  const { data, error } = useApi('/api/analysis?calibration=1', { interval: 3600000, timeout: 60000 });
+  const tone = data?.bias === 'optimistic' ? 'text-loss' : data?.bias === 'calibrated' ? 'text-gain' : 'text-muted-foreground';
+  return (
+    <Panel>
+      <h3 className={heading}>
+        <Target className="size-3.5 text-brand" /> Forecast track record
+      </h3>
+      {error && !data ? (
+        <p className="text-xs text-muted-foreground">The forecast log is unavailable.</p>
+      ) : !data ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : (
+        <>
+          <dl className="mb-2 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-line bg-line text-center [&>div]:bg-raised [&>div]:p-2">
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Logged</dt>
+              <dd className="font-mono text-sm font-semibold">{data.total}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Scored (≥1 yr)</dt>
+              <dd className="font-mono text-sm font-semibold">{data.scoredCount}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Median miss / yr</dt>
+              <dd className={`font-mono text-sm font-semibold ${tone}`}>{pts(data.medianError, true)}</dd>
+            </div>
+          </dl>
+          <p className={`text-sm ${tone}`}>{data.verdict}</p>
+          {data.limitation&&<p className="mt-1 text-xs text-muted-foreground">{data.limitation}</p>}
+          {data.scoredCount > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Forecast {pts(data.meanForecastCagr)} vs actual {pts(data.meanRealizedCagr)} a year on average · beat rate {pts(data.beatRate)}
+              {data.passedCount ? ` · return-qualified forecasts median miss ${pts(data.passedMedianError, true)}` : ''}.
+            </p>
+          )}
+          {data.entries?.length > 0 && (
+            <details className="mt-2 text-xs">
+              <summary className="cursor-pointer text-muted-foreground">Recent forecasts</summary>
+              <ul className="mt-1 divide-y divide-line font-mono">
+                {data.entries.slice(0, 20).map((e: any) => (
+                  <li key={e.ticker + e.recordedAt} className="flex flex-wrap justify-between gap-x-3 py-1">
+                    <span>{e.ticker}{e.passed ? ' ✓' : ''}</span>
+                    <span className="text-muted-foreground">{e.recordedAt.slice(0, 10)}</span>
+                    <span>
+                      {e.status === 'scored'
+                        ? `${pts(e.realizedCagr)} vs ${pts(e.forecastCagr)} /yr`
+                        : e.status === 'early'
+                          ? `${pts(e.actualSoFar, true)} vs ${pts(e.expectedSoFar, true)} so far`
+                          : 'no price'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Every accepted five-year forecast is logged with its review-time price. Price growth is compared with the forecast price path (dividends excluded on both sides), restated for splits. ✓ = cleared the return gate when recorded.
+          </p>
+        </>
+      )}
+    </Panel>
   );
 }

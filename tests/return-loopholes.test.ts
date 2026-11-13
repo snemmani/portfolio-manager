@@ -5,9 +5,9 @@ import {intrinsicValue} from '../lib/jarvis-gates';
 import {fundamentalScope} from '../lib/fundamental-store';
 import {cashResearchCandidates} from '../lib/cash-research';
 import {validateFundamentals} from '../lib/fundamental-contract';
-import {storedFundamental,bindReturnBasis,fundamentalFixture} from './fundamental-fixture.mjs';
+import {withFinancialAssumptions,storedFundamental,bindReturnBasis,fundamentalFixture} from './fundamental-fixture.mjs';
 const T='C.NS',op={value:100,currency:'INR',inputs:{earningsPerShare:10,startGrowthPct:12,terminalGrowthPct:5,discountPct:11,rocePct:20}};
-function review(intr:any,y5=300,y3=200,researchedAt=Date.now()){const r:any=storedFundamental(T,'INR',90,intr),at=new Date(researchedAt).toISOString();Object.assign(r,{researchedAt:at,expiresAt:new Date(Date.now()+60*864e5).toISOString(),policyVersion:'materiality-v3',blockingReasons:[]});Object.assign(r.valuation.returnProjection,{asOf:at,year5Value:y5,year3Value:y3,year5BullValue:null,year3BullValue:null});return bindReturnBasis(r,intr);}
+function review(intr:any,y5=300,y3=200,researchedAt=Date.now()){const r:any=storedFundamental(T,'INR',90,intr),at=new Date(researchedAt).toISOString();Object.assign(r,{researchedAt:at,expiresAt:new Date(Date.now()+60*864e5).toISOString(),policyVersion:'materiality-v3',blockingReasons:[]});Object.assign(r.valuation.returnProjection,{asOf:at,epsNow:y5/60,year5Eps:y5/60,year5Value:y5,year3Value:y3,year5BullValue:null,year3BullValue:null});return withFinancialAssumptions(bindReturnBasis(r,intr));}
 
 // 1. A reconciled, passing cash candidate (model under scorecard.intrinsic) is not re-researched daily.
 {const r=review(op,300,200,Date.now()-30*3600e3),cand={ticker:T,name:'C',currency:'INR',price:50,status:'eligible',sector:'Industrials',industry:'Machinery',scorecard:{intrinsic:op},metrics:{}};

@@ -15,9 +15,10 @@ export function holdingStep(h:any,policy:any,snapshot:any={}){
  if(check.status==='missing')return step('missing','Company research pending',check.reason);
  if(check.status==='stale')return step('stale','Research update needed',check.reason);
  if(check.status==='reject')return step('reject','Case not supported',check.reason);
+ if(check.status==='financial-reconciliation')return step('financial-reconciliation','Financial assumptions need reconciliation',check.reason);
  if(check.status==='return-reconciliation')return step('return-reconciliation','Return assumptions need reconciliation',check.reason);
  if(check.status==='return-pending')return step('return-pending','Return estimate pending',check.reason);
- if(check.status==='return')return step('return','Below 15% return hurdle',check.reason);
+ if(check.status==='return')return step('return','Below the return hurdle',check.reason);
  if(check.status==='incomplete'||check.status==='watch'&&!check.review?.valuation?.maxEntry){
   const reasons=[check.reason,...(check.blockers||[]),...(check.review?.blockingReasons||[])].filter(Boolean),valuation=reasons.length>0&&reasons.every((s:string)=>/valuation|maximum entry|buy ceiling/i.test(s));
   return step('incomplete',valuation?'Valuation incomplete':'Evidence incomplete',check.reason);

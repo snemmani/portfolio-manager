@@ -55,7 +55,7 @@ export function crossCheck(financials: any[] | null | undefined, statements: {cu
     rows,
     matched: compared.filter((r) => r.status === 'match').length,
     differs: compared.filter((r) => r.status === 'differs').length,
-    note: !compared.length ? 'Yahoo has no statements for the report periods.' : currencyNote,
+    note: compared.some(r=>r.metric==='revenue'&&r.status==='differs') ? 'Revenue definitions may differ: lenders can report gross interest revenue while a provider reports net interest plus non-interest income. Verify definitions and entity scope before treating this as a data error.' : !compared.length ? 'Yahoo has no statements for the report periods.' : currencyNote,
     currency: statements.currency || financials[0]?.currency || null,
   };
 }

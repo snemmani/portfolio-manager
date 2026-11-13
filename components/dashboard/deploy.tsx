@@ -304,7 +304,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                 value={status}
                 onChange={setStatus}
                 options={[
-                  { value:'shortlist',label:'≥15% shortlist',count:counts.shortlist },
+                  { value:'shortlist',label:'Return shortlist',count:counts.shortlist },
                   { value: 'eligible', label: 'Financial screen', count: counts.eligible },
                   { value: 'reviewed', label: 'Reviewed', count: counts.reviewed },
                   { value: 'watchlist', label: 'Watchlist', count: counts.watchlist },
@@ -316,7 +316,7 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ticker, name, sector…" className="h-7 w-52 rounded-md border border-line bg-background pr-2 pl-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               </label>
             </div>
-            <p className="border-b border-line px-3 py-2 text-xs text-muted-foreground">The shortlist requires a supported company case and at least 15% projected price CAGR over five years. Three years is comparison only. Dividends are excluded; estimates are scenarios, not guarantees. The Financial screen and Reviewed tabs retain companies outside the shortlist.</p>
+            <p className="border-b border-line px-3 py-2 text-xs text-muted-foreground">The shortlist requires a supported company case, a five-year projected total return of at least 15% a year (India) or 12% (US), and a bear case that returns the capital. Three years is comparison only. Dividends count after a 30% tax haircut; estimates are scenarios, not guarantees. The Financial screen and Reviewed tabs retain companies outside the shortlist.</p>
             {discovery.errors.length > 0 && (
               <details className="border-b border-line px-3 py-2 text-xs text-warn">
                 <summary className="flex cursor-pointer items-center gap-1.5">
@@ -341,8 +341,8 @@ export default function DeployView({ data, portfolio, showExecution }: ViewProps
                     {head('roce', 'ROCE/ROE', 'text-right hidden md:table-cell')}
                     {head('value', 'P / Value', 'text-right')}
                     {head('implied', 'Implied g', 'text-right hidden xl:table-cell')}
-                    {head('cagr3','3y price CAGR','text-right hidden md:table-cell')}
-                    {head('cagr5','5y price CAGR','text-right')}
+                    {head('cagr3','3y total return','text-right hidden md:table-cell')}
+                    {head('cagr5','5y total return','text-right')}
                     <th className="hidden px-2 font-semibold xl:table-cell">Status</th>
                     <th className="px-3 text-right font-semibold">Price</th>
                   </tr>

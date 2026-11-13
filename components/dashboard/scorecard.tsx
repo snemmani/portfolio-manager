@@ -193,7 +193,7 @@ function ValuationBand({ price, currency, scorecard, maxEntry, missingReason, en
     [
       { key: 'Code value', v: value, dot: 'bg-brand' },
       { key: 'Research max entry', v: research, dot: 'bg-info' },
-      { key: '15% return entry ceiling', v: returnCeiling, dot: 'bg-warn' },
+      { key: 'Return entry ceiling', v: returnCeiling, dot: 'bg-warn' },
       { key: 'Enforced buy ceiling', v: enforcedCeiling, dot: 'bg-gain' },
       { key: 'Price', v: price, dot: 'bg-foreground' },
     ] as { key: string; v: any; dot: string }[]

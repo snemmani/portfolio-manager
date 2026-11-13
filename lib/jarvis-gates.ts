@@ -35,7 +35,7 @@ export const GATE_LABELS:Record<GateId,string>={
  earningsQuality:'Earnings quality',
  returnOnCapital:'Return on capital',
  marginOfSafety:'Margin of safety',
- expectedReturn:'Five-year price CAGR ≥15%',
+ expectedReturn:'Five-year total return ≥ market hurdle',
  caps:'Position and sector caps',
  redFlags:'No serious red-flag event',
 };
@@ -116,11 +116,12 @@ export function multiYear(seriesInput:AnnualRow[]|null|undefined,marketCap?:numb
  // Net-profit growth is used instead of EPS growth: it is immune to unadjusted bonus issues/splits.
  const earningsCagr=span>=1.5?cagr(field(r0,'NetIncome'),field(oldest,'NetIncome'),span):null;
  const roceYears:number[]=[],roeYears:number[]=[],roaYears:number[]=[];
- for(const row of s){
+ for(const [index,row] of s.entries()){
   const ebit=field(row,'EBIT'),ta=field(row,'TotalAssets'),cl=field(row,'CurrentLiabilities');
   if(ebit!==null&&ta!==null&&cl!==null&&ta-cl>0)roceYears.push(ebit/(ta-cl)*100);
   const ni=field(row,'NetIncome'),eq=field(row,'StockholdersEquity');
-  if(ni!==null&&eq!==null&&eq>0)roeYears.push(ni/eq*100);
+  const priorEquity=field(s[index+1],'StockholdersEquity');
+  if(ni!==null&&eq!==null&&eq>0&&priorEquity!==null&&priorEquity>0)roeYears.push(ni/((eq+priorEquity)/2)*100);
   if(ni!==null&&ta!==null&&ta>0)roaYears.push(ni/ta*100);
  }
  // Cumulative cash conversion over the latest three years with both values.

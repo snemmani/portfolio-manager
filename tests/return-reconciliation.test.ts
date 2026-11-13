@@ -3,7 +3,7 @@ import {returnPotential,codeFutureValue,RETURN_POLICY} from '../lib/return-poten
 import {fundamentalCheck,shortlistCheck,FUNDAMENTAL_POLICY} from '../lib/fundamental-policy';
 import {validateFundamentals} from '../lib/fundamental-contract';
 import {businessModel} from '../lib/business-model';
-import {fundamentalFixture,storedFundamental,bindReturnBasis} from './fundamental-fixture.mjs';
+import {withFinancialAssumptions,fundamentalFixture,storedFundamental,bindReturnBasis} from './fundamental-fixture.mjs';
 import {planDiscovery} from '../lib/discovery';
 import {ruleIdeas} from '../lib/event-policy';
 import {executionFromContext} from '../lib/execution-engine';
@@ -29,6 +29,7 @@ const merged=mergeRecommendations([h],[{portfolio:p.name,ticker,action:'buy',rea
 assert(fundamentalCheck(policy,ticker,undefined,undefined,Date.now(),'business').clear,'An unresolved purchase forecast is not a selling/outlook blocker');
 // Use the real normaliser, not a self-certified reconciliation flag.
 const raw:any=fundamentalFixture(ticker);raw.valuation={...raw.valuation,currency:'INR',baseValue:443,maxEntry:402.6,bearValue:281.82,bullValue:603.9,returnProjection:{...raw.valuation.returnProjection,scenario:'base',baseValueNow:443,codeValueNow:834.58,year3Value:443*1.05**3,year5Value:443*1.05**5,year3BearValue:350,year3BullValue:650,year5BearValue:400,year5BullValue:800,reconciliation:'The 1.10x book base case retains a credit-risk discount to the theoretical 2.07x code multiple; 5% retained-book growth funds the future targets.'}};
+raw.valuation.returnProjection.epsNow=402.6*.1951;raw.valuation.returnProjection.year5Eps=raw.valuation.returnProjection.epsNow*1.05**5;raw.valuation.returnProjection.exitPe=raw.valuation.returnProjection.year5Value/raw.valuation.returnProjection.year5Eps;withFinancialAssumptions(raw,bank);
 const snap:any={fundamentalPolicy:FUNDAMENTAL_POLICY,fundamentalScope:[{ticker,currency:'INR',businessModel:model,intrinsic:bank,statementPeriod:raw.statementPeriod}],fundamentalProfiles:{[ticker]:{website:'https://issuer.example'}}},checks=raw.sources.map((s:any)=>({ticker,url:s.url,reachable:true}));
 let valid=validateFundamentals([raw],snap,checks)[0],at=Date.parse(valid.researchedAt);assert(valid.valuation.returnProjection);
 const twice=validateFundamentals([valid],snap,checks)[0];assert(twice.valuation.returnProjection,'Runner-normalised forecasts must survive the server publication pass');assert.equal(twice.valuation.returnProjection.year5Value,valid.valuation.returnProjection.year5Value);assert.deepEqual(twice.valuation.returnProjection.valuationBasis,valid.valuation.returnProjection.valuationBasis);assert.equal(twice.returnWarnings.length,0);
@@ -41,12 +42,12 @@ for(const key of ['baseValue','maxEntry']){const changed=structuredClone(valid);
 for(const changed of [{...bank,value:835},{...bank,inputs:{...bank.inputs,growthPct:6}},{...bank,binding:false},{...bank,currency:'USD'},null])assert(returnPotential(100,changed,valid,'INR',at).needsReconciliation,'Changed or removed code inputs require a new captured reconciliation');
 const legacy=structuredClone(valid);legacy.valuation.returnProjection.version='price-cagr-v1';assert(!returnPotential(1,bank,legacy,'INR',at).known,'Legacy projections cannot certify the new policy');
 for(const mutate of [(x:any)=>x.valuation.returnProjection.scenario='bull',(x:any)=>x.valuation.returnProjection.year5BearValue=1000,(x:any)=>x.valuation.returnProjection.codeValueNow=402.6,(x:any)=>x.valuation.returnProjection.baseValueNow=444,(x:any)=>x.valuation.returnProjection.sourceIds=['forged']]){
- const bad=structuredClone(raw);mutate(bad);const v=validateFundamentals([bad],snap,checks)[0];assert.equal(v.valuation.returnProjection,null,'Invalid scenario, anchors or evidence cannot self-certify a return');assert.equal(v.decision,'supported','Return-only gaps preserve the business review');assert(v.returnWarnings.length>0);assert(!v.warnings.some((w:string)=>w.includes('forward base-case')),'Return validation does not count as a business/selling warning');
+ const bad=structuredClone(raw);mutate(bad);const v=validateFundamentals([bad],snap,checks)[0];assert.equal(v.valuation.returnProjection,null,'Invalid scenario, anchors or evidence cannot self-certify a return');if(v.blockingReasons.length)assert.equal(v.decision,'incomplete');else assert.equal(v.decision,'supported','Return-only gaps preserve the business review');assert(v.returnWarnings.length>0);assert(!v.warnings.some((w:string)=>w.includes('forward base-case')),'Return validation does not count as a business/selling warning');
 }
 const partlyChecked=validateFundamentals([raw],snap,checks.filter((c:any)=>!c.url.includes('results')))[0];assert.equal(partlyChecked.valuation.returnProjection,null,'One reachable reference cannot certify a forecast also citing unverified sources');
 const mismatch={...reconciled,candidates:[{...c,currency:'USD'}]};assert.equal(fundamentalCheck(mismatch,ticker,100).status,'incomplete','A matching projection currency cannot hide a mismatched trading currency');
 // Opposite direction: a research forecast cannot relax an existing conservative code limit.
-const optimistic=structuredClone(valid);optimistic.valuation.returnProjection.year3Value=1000;optimistic.valuation.returnProjection.year5Value=1900;optimistic.valuation.returnProjection.year3BullValue=null;optimistic.valuation.returnProjection.year5BullValue=null;
+const optimistic=structuredClone(valid);optimistic.valuation.returnProjection.year3Value=1000;optimistic.valuation.returnProjection.year5Value=1900;optimistic.valuation.returnProjection.year5Eps=1900/optimistic.valuation.returnProjection.exitPe;optimistic.valuation.returnProjection.year3BullValue=null;optimistic.valuation.returnProjection.year5BullValue=null;
 const constrained=returnPotential(100,bank,optimistic,'INR',at);assert.equal(constrained.scenarios[1].targetValue,codeFutureValue(bank,5));assert.equal(constrained.scenarios[0].targetValue,codeFutureValue(bank,3),'One model is used for both horizons');
 // Direction, scale and price cannot turn an absent reconciliation into purchase authority.
 for(let i=1;i<=8000;i++){
@@ -62,5 +63,5 @@ assert.equal(fundamentalScope(ss,policy,{[ticker]:legacyAttempt})[0].ticker,tick
 assert(cashResearchCandidates({...ss,holdings:[]},policy,{[ticker]:legacyAttempt})[0].researchDue);
 assert(!cashResearchCandidates({...ss,holdings:[]},policy,{[ticker]:recentAttempt})[0].researchDue);
 assert(!cashResearchCandidates({...ss,holdings:[]},policy,{[ticker]:{...legacyAttempt,decision:'reject'}})[0].researchEligible,'Rejected businesses do not receive forward-return refreshes');
-assert.equal(RETURN_POLICY.version,'price-cagr-v2');
+assert.equal(RETURN_POLICY.version,'total-return-v3');
 console.log('PASS: PFC production-shaped regression, code/research disagreements in both directions, 8,000 property states, source-normalised reconciliation, base-only ordering, unchanged sale eligibility, frozen dates, changed anchors/models/currencies, cash/shortlist/execution and non-rules recommendation enforcement.');

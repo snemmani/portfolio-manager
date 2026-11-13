@@ -6,6 +6,7 @@ import {fundamentalReviews,fundamentalScope,staleHoldings} from './fundamental-s
 import {companyGateIndex} from './jarvis-gates';
 import {fundamentalCheck,FUNDAMENTAL_POLICY} from './fundamental-policy';
 import {publicSourceUrl,validateFundamentals} from './fundamental-contract';
+import {forecastLogRow,fromDb,scoreForecasts} from './forecast-calibration';
 import {storedDiscovery,researchDiscovery,retainReviewedCandidates,reviewedCandidateStatements,invalidateDiscoveryCache} from './discovery-store';
 import {rulesMode,liveMarket,marketState} from './market-store';
 import {recheckCandidate} from './discovery-review';
@@ -68,6 +69,7 @@ export async function analysisHandler(request:Request,env:Env){
   context={intent:'holding-review',tickers};
  }
  if(input.intent==='deploy-cash'){if(focus||!['India','US'].includes(input.market)||typeof input.portfolio!=='string'||input.portfolio.length>100||input.budget!==undefined&&(!Number.isFinite(input.budget)||input.budget<=0))return json({error:'Choose a portfolio, market and positive available budget.'},400);const portfolio= (await dashboard(env)).portfolios.find((p:any)=>p.name===input.portfolio);if(!portfolio||!portfolio.complete||portfolio.cash<=0)return json({error:'This portfolio has no verified available cash.'},400);context={intent:'deploy-cash',portfolio:portfolio.name,market:input.market,budget:Math.min(portfolio.cash,input.budget??portfolio.cash),campaignId:await enableCampaign(env)};}queued=await queue(env,false,focus,context);}
+ if(request.method==='GET'&&new URL(request.url).searchParams.get('calibration')==='1')return json(await forecastCalibration(env));
  if(request.method==='GET'&&new URL(request.url).searchParams.get('holdings')==='1'){
   const [reviews,market,acks,documents,run]=await Promise.all([fundamentalReviews(env),marketState(env),env.DB.prepare('SELECT ticker,fingerprint FROM event_acknowledgements').all(),annualDocumentIndex(env),env.DB.prepare("SELECT status,scope_json,focus_ticker FROM research_runs WHERE id=(SELECT run_id FROM research_jobs WHERE id='current')").first<any>()]);
   return json({asOf:now(),fundamentalReviews:reviews,events:JSON.parse(market?.events_json||'{}'),eventAcks:Object.fromEntries(acks.results.map((r:any)=>[r.ticker,r.fingerprint])),documentPolicy:documents.enabled?'annual-reports-v1':null,annualDocumentsAvailable:documents.available,annualDocuments:documents.reports,current:run?{status:run.status,scope:JSON.parse(run.scope_json||'[]').length?JSON.parse(run.scope_json):run.focus_ticker?[run.focus_ticker]:[]}:null});
@@ -76,6 +78,19 @@ export async function analysisHandler(request:Request,env:Env){
  const c=await config(env);const runner=await state(env);const report=await getReport(env);const age=report?Date.now()-Date.parse(report.as_of):null;
  const currentJob=await jobState(env);
  return json({schedule:researchSchedule(!!c.enabled,currentJob?.last_auto_slot),enabled:!!c.enabled,provider:'antigravity',intervalMinutes:RESEARCH_SCHEDULE.intervalMinutes,runner,report,job:currentJob,fundamentalReviews:await fundamentalReviews(env),reportStale:age!==null&&age>7200000,...(queued?{message:queued.queued?'Research queued. The local runner will pick it up shortly.':'A report is already queued, running or was just refreshed.'}:{})});
+}
+/** Append accepted forecasts to the track record. Logging never blocks publishing the reviews. */
+async function logForecasts(env:Env,reviews:any[],snapshot:any){
+ const rows=reviews.map(r=>{const target=snapshot.fundamentalScope?.find((s:any)=>s.ticker===r.ticker);return forecastLogRow(r,target?.intrinsic??null,target?.businessModel?.lender===true);}).filter(Boolean) as NonNullable<ReturnType<typeof forecastLogRow>>[];if(!rows.length)return;
+ try{await env.DB.batch(rows.map(r=>env.DB.prepare('INSERT OR IGNORE INTO forecast_log(ticker,recorded_at,policy,currency,price_at,year5_target,year5_bear,dividend_per_share,hurdle,passed,data_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(r.ticker,r.recordedAt,r.policy,r.currency,r.priceAt,r.year5Target,r.year5Bear,r.dividendPerShare,r.hurdle,r.passed?1:0,JSON.stringify(r.data))));}
+ catch(e){console.error('Forecast log write failed',e);}
+}
+/** Score logged forecasts against current prices (five-year history so later splits are restated). */
+async function forecastCalibration(env:Env){
+ let rows:any[]=[];try{rows=(await env.DB.prepare('SELECT * FROM forecast_log ORDER BY recorded_at DESC LIMIT 500').all()).results as any[];}catch{}
+ const log=rows.map(fromDb),tickers=[...new Set(log.map(r=>r.ticker))];
+ const quotes=Object.fromEntries(await Promise.all(tickers.map(async t=>[t,await quote(t,'5y')] as const)));
+ return scoreForecasts(log,quotes);
 }
 async function authenticate(request:Request,env:Env){
  const expected=env.RUNNER_SHARED_SECRET;const auth=request.headers.get('Authorization')||'';
@@ -155,7 +170,7 @@ export async function runnerHandler(request:Request,env:Env){
  env.DB.prepare("UPDATE runner_state SET heartbeat_at=?,status='ready',auth_mode='antigravity',last_error=NULL,last_completed_at=?,updated_at=? WHERE id='local'").bind(time,time,time),
  ...(rulesMode(env)?[env.DB.prepare("UPDATE market_state SET requested=1 WHERE id='local'")]:[]),
  ...(job.request_source==='automatic'&&!rulesMode(env)?[env.DB.prepare("INSERT OR IGNORE INTO buy_review_runs(id,as_of,completed_at,status) VALUES(?,?,?,'pending')").bind(job.lease_token,job.snapshot_at,time)]:[])
- ]);invalidateDiscoveryCache();return json({ok:true,positions:result.recommendations.length,asOf:job.snapshot_at});
+ ]);await logForecasts(env,result.fundamental_reviews||[],captured);invalidateDiscoveryCache();return json({ok:true,positions:result.recommendations.length,asOf:job.snapshot_at});
  }
  return json({error:'Unknown operation'},400);
 }

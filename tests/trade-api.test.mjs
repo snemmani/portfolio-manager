@@ -1,4 +1,4 @@
-import {storedFundamental} from './fundamental-fixture.mjs';
+import {withFinancialAssumptions,storedFundamental} from './fundamental-fixture.mjs';
 import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {readFileSync,readdirSync} from 'node:fs';
 import {executionHandler,tradeHandler,invalidateDashboard,dashboard} from '/tmp/arthapalana-trades.mjs';
 const sql=new DatabaseSync(':memory:');for(const f of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+f,'utf8'));
@@ -41,8 +41,8 @@ d=await data();assert.equal(d.plan.side,'buy');assert(d.plan.authorized);assert.
 laterBuys=[{Id:4,Ticker:'AAA.NS',Portfolio:'Test',Date:'2026-10-01',TransactionType:'Buy',NoOfShares:1,CostPerShare:140}];invalidateDashboard();snap=await dashboard(env);assert.equal(snap.reentries[0].status,'completed');
 // A fully exited holding remains tracked and can qualify from fresh empirical evidence.
 laterBuys=[];sales=[sale(10,'2026-09-01')];invalidateDashboard();snap=await dashboard(env);assert.equal(snap.holdings.length,0);watch=snap.reentries[0];assert(watch.financialPass);await post({operation:'review_reentry',ticker:'AAA.NS',portfolio:'Test',confirmed:true,fingerprint:watch.historyKey});d=await data();assert.equal(d.plan.side,'buy');assert(d.plan.authorized);assert(d.plan.quantity>0);
-// A reviewed re-entry and valid technical plan cannot bypass the five-year price hurdle.
-const lowReturn=structuredClone(company);lowReturn.valuation.returnProjection.year3Value=250;lowReturn.valuation.returnProjection.year5Value=200;
+// A reviewed re-entry and valid technical plan cannot bypass the five-year return hurdle.
+const lowReturn=structuredClone(company);lowReturn.valuation.returnProjection.year3Value=250;lowReturn.valuation.returnProjection.year5Value=200;lowReturn.valuation.returnProjection.year5BearValue=150;lowReturn.valuation.returnProjection.epsNow=200/60;lowReturn.valuation.returnProjection.year5Eps=200/60;withFinancialAssumptions(lowReturn);
 sql.prepare('UPDATE fundamental_reviews SET data_json=? WHERE ticker=?').run(JSON.stringify(lowReturn),company.ticker);
 d=await data();assert.equal(d.plan.side,'buy');assert.equal(d.plan.authorized,false);assert.equal(d.plan.canDraft,false);assert.match(d.plan.decisionReason,/15%/);assert(d.returnPotential.scenarios[0].cagr>.15&&d.returnPotential.scenarios[1].cagr<.15);
 sql.prepare('UPDATE fundamental_reviews SET data_json=? WHERE ticker=?').run(JSON.stringify(company),company.ticker);d=await data();assert(d.plan.authorized,'Restoring a qualifying forecast restores the valid re-entry plan without weakening its other checks');

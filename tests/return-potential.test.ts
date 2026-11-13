@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import {RETURN_POLICY,returnPotential,codeFutureValue} from '../lib/return-potential';
+import {RETURN_POLICY,returnPotential,codeFutureValue,hurdleFor} from '../lib/return-potential';
 import {fundamentalCheck,FUNDAMENTAL_POLICY} from '../lib/fundamental-policy';
 import {buyCeiling} from '../lib/buy-ceiling';
 import {validateFundamentals} from '../lib/fundamental-contract';
-import {fundamentalFixture,storedFundamental,bindReturnBasis} from './fundamental-fixture.mjs';
+import {withFinancialAssumptions,fundamentalFixture,storedFundamental,bindReturnBasis} from './fundamental-fixture.mjs';
 const now=Date.now(),ticker='AAA.NS';
-function research(future5=100*Math.pow(1.15,5),future3=160){const r:any=storedFundamental(ticker,'INR',150);r.expiresAt=new Date(Date.now()+100*86400000).toISOString();r.blockingReasons=[];r.policyVersion='materiality-v3';r.valuation.returnProjection={...r.valuation.returnProjection,year3Value:future3,year5Value:future5};const base=Math.max(r.valuation.baseValue,future5/4,future3/2.4);r.valuation.baseValue=base;r.valuation.bullValue=Math.max(r.valuation.bullValue,base);r.valuation.returnProjection.baseValueNow=base;r.valuation.returnProjection.valuationBasis.baseValue=base;return r;}
-assert.equal(RETURN_POLICY.requiredYears,5);assert(!RETURN_POLICY.dividendsIncluded);
+function research(future5=100*Math.pow(1.15,5),future3=160){const r:any=storedFundamental(ticker,'INR',150);r.expiresAt=new Date(Date.now()+100*86400000).toISOString();r.blockingReasons=[];r.policyVersion='materiality-v3';r.valuation.returnProjection={...r.valuation.returnProjection,year3Value:future3,year5Value:future5,year5BearValue:future5};const base=Math.max(r.valuation.baseValue,future5/4,future3/2.4);r.valuation.baseValue=base;r.valuation.bullValue=Math.max(r.valuation.bullValue,base);r.valuation.returnProjection.baseValueNow=base;r.valuation.returnProjection.valuationBasis.baseValue=base;r.valuation.returnProjection.epsNow=future5/60;r.valuation.returnProjection.year5Eps=future5/60;return withFinancialAssumptions(r);}
+assert.equal(RETURN_POLICY.requiredYears,5);assert(RETURN_POLICY.dividendsIncluded);assert.equal(hurdleFor('INR'),.15);assert.equal(hurdleFor('USD'),.12);assert.equal(hurdleFor('EUR'),.15,'Unknown currencies get the stricter hurdle');
 const flat={value:100,currency:'INR',inputs:{earningsPerShare:10,startGrowthPct:0,terminalGrowthPct:0,discountPct:10,rocePct:20}};
 for(const h of [3,5] as const)assert(Math.abs(codeFutureValue(flat,h)!-100)<1e-9,'A flat earnings perpetuity has a flat future price, not 10% price appreciation');
 const r=research(),at=Date.parse(r.researchedAt);assert(returnPotential(100,null,r,'INR',at).passes,'Exactly 15% qualifies');
